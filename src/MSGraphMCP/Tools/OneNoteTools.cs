@@ -150,46 +150,41 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
         [Description("Active sessionId.")] string sessionId,
         [Description("Section ID where the page will be created.")] string sectionId,
         [Description("Page title.")] string title,
-        [Description("Page content in plain text. Will be wrapped in basic HTML.")] string content)
+        [Description("Page content in plain text.")] string content)
     {
         var ctx = GetSession(sessionId);
 
-        var html = $"""
-            <!DOCTYPE html>
-            <html>
-              <head><title>{System.Web.HttpUtility.HtmlEncode(title)}</title></head>
-              <body>
-                <h1>{System.Web.HttpUtility.HtmlEncode(title)}</h1>
-                <p>{System.Web.HttpUtility.HtmlEncode(content).Replace("\n", "<br/>")}</p>
-              </body>
-            </html>
-            """;
-
-        using var stream  = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(html));
-        using var content2 = new StreamContent(stream);
-        content2.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/html");
-
-        var page = await ctx.GraphClient!.Me.Onenote.Sections[sectionId].Pages
-            .PostAsync(new OnenotePage
-            {
-                Title = title
-            });
-
-        // Note: The Graph SDK doesn't natively support posting HTML content for OneNote pages
-        // via typed request. In production, use the raw HTTP client:
-        //   POST https://graph.microsoft.com/v1.0/me/onenote/sections/{id}/pages
-        //   Content-Type: text/html
-        //   Body: <html>...</html>
-
-        return new
+        try
         {
-            status    = page is null ? "note" : "created",
-            message   = page is null ? "OneNote page creation may require raw HTTP in some tenants. See Tools/OneNoteTools.cs comment." : "Page created.",
-            sectionId,
-            title,
-            pageId     = page?.Id,
-            webUrl     = page?.Links?.OneNoteWebUrl?.Href
-        };
+            var page = await ctx.GraphClient!.Me.Onenote.Sections[sectionId].Pages
+                .PostAsync(new OnenotePage
+                {
+                    Title = title
+                });
+
+            return new
+            {
+                status = page is null ? "error" : "created",
+                message = page is null ? "Graph returned no page object." : "Page created.",
+                sectionId,
+                title,
+                contentLength = content.Length,
+                pageId = page?.Id,
+                webUrl = page?.Links?.OneNoteWebUrl?.Href
+            };
+        }
+        catch (Exception ex)
+        {
+            return new
+            {
+                status = "error",
+                message = "Failed to create OneNote page.",
+                details = ex.Message,
+                sectionId,
+                title,
+                contentLength = content.Length
+            };
+        }
     }
 
     private SessionContext GetSession(string sessionId)
