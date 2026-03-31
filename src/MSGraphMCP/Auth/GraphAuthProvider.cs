@@ -17,7 +17,6 @@ namespace MSGraphMCP.Auth;
 /// </summary>
 public class GraphAuthProvider
 {
-    private readonly IConfiguration _config;
     private readonly BlobTokenCache _blobCache;
     private readonly ILogger<GraphAuthProvider> _logger;
 
@@ -30,7 +29,6 @@ public class GraphAuthProvider
         BlobTokenCache blobCache,
         ILogger<GraphAuthProvider> logger)
     {
-        _config    = config;
         _blobCache = blobCache;
         _logger    = logger;
         _tenantId  = config["AzureAd:TenantId"]  ?? throw new InvalidOperationException("AzureAd:TenantId required");
@@ -67,7 +65,7 @@ public class GraphAuthProvider
             _logger.LogInformation("Silent auth succeeded for {User}. Token expires {Expiry}",
                 userHint, result.ExpiresOn);
 
-            return BuildGraphClient(app);
+            return BuildGraphClient(app, _scopes);
         }
         catch (MsalUiRequiredException ex)
         {
@@ -124,7 +122,7 @@ public class GraphAuthProvider
     /// </summary>
     private async Task FinalizeSessionAsync(SessionContext session, AuthenticationResult result)
     {
-        session.GraphClient    = BuildGraphClient(session.MsalApp!);
+        session.GraphClient    = BuildGraphClient(session.MsalApp!, _scopes);
         session.AuthenticatedAt = DateTimeOffset.UtcNow;
 
         // Schedule silent refresh 5 minutes before the access token expires.
@@ -187,13 +185,11 @@ public class GraphAuthProvider
         return app;
     }
 
-    private static GraphServiceClient BuildGraphClient(IPublicClientApplication app)
+    private static GraphServiceClient BuildGraphClient(IPublicClientApplication app, string[] scopes)
     {
-        var scopes = app.AppConfig.ClientCapabilities?.ToArray() ?? [];
-
         return new GraphServiceClient(
             new BaseBearerTokenAuthenticationProvider(
-                new MsalTokenProvider(app)));
+                new MsalTokenProvider(app, scopes)));
     }
 }
 
@@ -203,9 +199,13 @@ public class GraphAuthProvider
 public class MsalTokenProvider : IAccessTokenProvider
 {
     private readonly IPublicClientApplication _app;
-    private static readonly string[] _scopes = [];
+    private readonly string[] _scopes;
 
-    public MsalTokenProvider(IPublicClientApplication app) => _app = app;
+    public MsalTokenProvider(IPublicClientApplication app, string[] scopes)
+    {
+        _app = app;
+        _scopes = scopes;
+    }
 
     public async Task<string> GetAuthorizationTokenAsync(
         Uri uri,
@@ -213,9 +213,11 @@ public class MsalTokenProvider : IAccessTokenProvider
         CancellationToken cancellationToken = default)
     {
         var accounts = await _app.GetAccountsAsync();
-        // Scopes are already registered on the MSAL app via the cache callbacks
+        var account = accounts.FirstOrDefault()
+            ?? throw new InvalidOperationException("No signed-in account available for Graph token acquisition.");
+
         var result = await _app
-            .AcquireTokenSilent(_scopes, accounts.FirstOrDefault())
+            .AcquireTokenSilent(_scopes, account)
             .ExecuteAsync(cancellationToken);
         return result.AccessToken;
     }
