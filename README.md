@@ -104,7 +104,9 @@ An MCP (Model Context Protocol) server exposing Microsoft 365 capabilities — M
 User.Read
 Mail.Read
 Mail.Send
+MailboxSettings.Read
 Calendars.ReadWrite
+Channel.ReadBasic.All
 ChannelMessage.Read.All
 Team.ReadBasic.All
 Files.ReadWrite.All
