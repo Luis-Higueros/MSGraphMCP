@@ -257,6 +257,19 @@ The response includes a summary and per-check status for:
 - `OneNoteListNotebooks`
 - `PlannerListPlans`
 
+#### One-command smoke test runner
+
+If the app is already running locally, you can trigger the smoke test flow with one PowerShell command:
+
+```powershell
+.\deploy\run-scope-smoke.ps1 -UserHint "your.name@company.com" -TeamId "<team-id>" -ChannelId "<channel-id>"
+```
+
+Behavior:
+- Reuses a cached/silent login if available
+- If interactive sign-in is still required, it prints the device-code URL and code
+- Calls `/test/scope-smoke` and prints the JSON result
+
 ---
 
 ## GitHub Actions CI/CD
