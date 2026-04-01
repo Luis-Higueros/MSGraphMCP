@@ -68,7 +68,6 @@ public class TeamsTools(SessionStore sessionStore, ILogger<TeamsTools> logger)
             .GetAsync(cfg =>
             {
                 cfg.QueryParameters.Top    = Math.Clamp(maxMessages, 1, 50);
-                cfg.QueryParameters.Select = ["id", "subject", "body", "from", "createdDateTime", "importance"];
             });
 
         return new
@@ -101,7 +100,6 @@ public class TeamsTools(SessionStore sessionStore, ILogger<TeamsTools> logger)
         var message = await ctx.GraphClient!.Teams[teamId].Channels[channelId].Messages
             .PostAsync(new ChatMessage
             {
-                Subject = subject,
                 Body    = new() { ContentType = BodyType.Html, Content = content }
             });
 

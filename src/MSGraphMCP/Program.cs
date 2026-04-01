@@ -50,15 +50,210 @@ app.MapHealthChecks("/health");
 // MCP endpoint at /mcp
 app.MapMcp("/mcp");
 
+// Lightweight smoke endpoint to validate delegated Graph scopes for an existing session.
+app.MapPost("/test/scope-smoke", async (ScopeSmokeRequest request, SessionStore sessionStore) =>
+{
+    if (string.IsNullOrWhiteSpace(request.SessionId))
+        return Results.BadRequest(new { error = "sessionId is required." });
+
+    var ctx = sessionStore.Get(request.SessionId);
+    if (ctx is null)
+        return Results.NotFound(new { error = "Session not found or expired." });
+    if (!ctx.IsAuthenticated || ctx.GraphClient is null)
+        return Results.BadRequest(new { error = "Session is not authenticated yet." });
+
+    var graph = ctx.GraphClient;
+    var checks = new List<object>();
+    var passed = 0;
+    var failed = 0;
+    var skipped = 0;
+
+    async Task RunCheck(string name, Func<Task> probe)
+    {
+        try
+        {
+            await probe();
+            checks.Add(new { check = name, status = "passed" });
+            passed++;
+        }
+        catch (Exception ex)
+        {
+            checks.Add(new { check = name, status = "failed", error = ex.Message });
+            failed++;
+        }
+    }
+
+    Task SkipCheck(string name, string reason)
+    {
+        checks.Add(new { check = name, status = "skipped", reason });
+        skipped++;
+        return Task.CompletedTask;
+    }
+
+    await RunCheck("GraphWhoAmI", async () =>
+    {
+        await graph.Me.GetAsync(cfg =>
+            cfg.QueryParameters.Select = ["displayName", "mail", "userPrincipalName"]);
+    });
+
+    await RunCheck("MailSearch", async () =>
+    {
+        var messages = await graph.Me.Messages.GetAsync(cfg =>
+        {
+            cfg.QueryParameters.Top = 1;
+            cfg.QueryParameters.Select = ["id", "subject", "receivedDateTime"];
+        });
+        _ = messages?.Value?.FirstOrDefault();
+    });
+
+    await RunCheck("CalendarGetAgenda", async () =>
+    {
+        var mailboxSettings = await graph.Me.MailboxSettings.GetAsync();
+        var timezone = mailboxSettings?.TimeZone ?? "UTC";
+        var from = (request.FromUtc ?? DateTimeOffset.UtcNow.Date).UtcDateTime;
+        var to = (request.ToUtc ?? DateTimeOffset.UtcNow.Date.AddDays(2)).UtcDateTime;
+
+        var events = await graph.Me.CalendarView.GetAsync(cfg =>
+        {
+            cfg.QueryParameters.StartDateTime = from.ToString("o");
+            cfg.QueryParameters.EndDateTime = to.ToString("o");
+            cfg.QueryParameters.Top = 1;
+            cfg.QueryParameters.Select = ["id", "subject", "start", "end"];
+        });
+        _ = timezone;
+        _ = events?.Value?.FirstOrDefault();
+    });
+
+    await RunCheck("FilesListItems", async () =>
+    {
+        var drive = await graph.Me.Drive.GetAsync(cfg => cfg.QueryParameters.Select = ["id"]);
+        var driveId = drive?.Id ?? throw new InvalidOperationException("Unable to resolve user drive.");
+        var root = await graph.Drives[driveId].Root.GetAsync(cfg =>
+            cfg.QueryParameters.Select = ["id"]);
+        var rootId = root?.Id ?? throw new InvalidOperationException("Unable to resolve drive root id.");
+        var rootItems = await graph.Drives[driveId].Items[rootId].Children.GetAsync(cfg =>
+        {
+            cfg.QueryParameters.Top = 1;
+            cfg.QueryParameters.Select = ["id", "name"];
+        });
+        _ = rootItems?.Value?.FirstOrDefault();
+    });
+
+    string? teamId = request.TeamId;
+    await RunCheck("TeamsListMyTeams", async () =>
+    {
+        var teams = await graph.Me.JoinedTeams.GetAsync(cfg =>
+            cfg.QueryParameters.Select = ["id", "displayName"]);
+        var first = teams?.Value?.FirstOrDefault();
+        teamId ??= first?.Id;
+        _ = first?.DisplayName;
+    });
+
+    if (string.IsNullOrWhiteSpace(teamId))
+    {
+        await SkipCheck("TeamsListChannels", "No teamId provided or discovered from TeamsListMyTeams.");
+        await SkipCheck("TeamsGetChannelMessages", "No teamId provided or discovered from TeamsListMyTeams.");
+    }
+    else
+    {
+        string? channelId = request.ChannelId;
+        await RunCheck("TeamsListChannels", async () =>
+        {
+            var channels = await graph.Teams[teamId].Channels.GetAsync(cfg =>
+            {
+                cfg.QueryParameters.Select = ["id", "displayName"];
+            });
+            var first = channels?.Value?.FirstOrDefault();
+            channelId ??= first?.Id;
+            _ = first?.DisplayName;
+        });
+
+        if (string.IsNullOrWhiteSpace(channelId))
+        {
+            await SkipCheck("TeamsGetChannelMessages", "No channelId provided or discovered from TeamsListChannels.");
+        }
+        else
+        {
+            await RunCheck("TeamsGetChannelMessages", async () =>
+            {
+                var messages = await graph.Teams[teamId].Channels[channelId].Messages.GetAsync(cfg =>
+                {
+                    cfg.QueryParameters.Top = 1;
+                });
+                _ = messages?.Value?.FirstOrDefault();
+            });
+        }
+    }
+
+    await RunCheck("OneNoteListNotebooks", async () =>
+    {
+        var notebooks = await graph.Me.Onenote.Notebooks.GetAsync(cfg =>
+        {
+            cfg.QueryParameters.Top = 1;
+            cfg.QueryParameters.Select = ["id", "displayName"];
+        });
+        _ = notebooks?.Value?.FirstOrDefault();
+    });
+
+    await RunCheck("PlannerListPlans", async () =>
+    {
+        var groups = await graph.Me.MemberOf.GetAsync(cfg =>
+            cfg.QueryParameters.Select = ["id", "displayName"]);
+
+        var planCount = 0;
+        string? firstPlanId = null;
+        foreach (var group in groups?.Value?.OfType<Microsoft.Graph.Models.Group>() ?? [])
+        {
+            try
+            {
+                var plans = await graph.Groups[group.Id].Planner.Plans.GetAsync(cfg =>
+                {
+                    cfg.QueryParameters.Top = 1;
+                    cfg.QueryParameters.Select = ["id", "title"];
+                });
+                var first = plans?.Value?.FirstOrDefault();
+                if (first is not null)
+                {
+                    planCount++;
+                    firstPlanId ??= first.Id;
+                }
+            }
+            catch
+            {
+                // Some groups have no planner access; continue scanning.
+            }
+        }
+
+        _ = planCount;
+        _ = firstPlanId;
+    });
+
+    return Results.Ok(new
+    {
+        sessionId = request.SessionId,
+        summary = new { passed, failed, skipped },
+        checks
+    });
+});
+
 // Root info endpoint
 app.MapGet("/", () => new
 {
     service   = "MSGraphMCP",
     version   = "1.0.0",
     status    = "running",
-    endpoints = new { mcp = "/mcp", health = "/health" }
+    endpoints = new { mcp = "/mcp", health = "/health", scopeSmoke = "/test/scope-smoke" }
 });
 
 app.Logger.LogInformation("MSGraphMCP server starting on {Urls}", builder.Configuration["Urls"]);
 
 await app.RunAsync();
+
+public sealed class ScopeSmokeRequest
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string? TeamId { get; set; }
+    public string? ChannelId { get; set; }
+    public DateTimeOffset? FromUtc { get; set; }
+    public DateTimeOffset? ToUtc { get; set; }
+}

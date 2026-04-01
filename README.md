@@ -214,6 +214,34 @@ Headers:
   X-Session-Id: {{session_id}}
 ```
 
+### Scope Smoke Test Endpoint
+
+Use this endpoint to run a quick pass/fail sweep of the core Graph capabilities for an existing authenticated session.
+
+```
+POST /test/scope-smoke
+Content-Type: application/json
+
+{
+  "sessionId": "<session-id>",
+  "teamId": "<optional-team-id>",
+  "channelId": "<optional-channel-id>",
+  "fromUtc": "2026-04-01T00:00:00Z",
+  "toUtc": "2026-04-03T00:00:00Z"
+}
+```
+
+The response includes a summary and per-check status for:
+- `GraphWhoAmI`
+- `MailSearch`
+- `CalendarGetAgenda`
+- `FilesListItems`
+- `TeamsListMyTeams`
+- `TeamsListChannels`
+- `TeamsGetChannelMessages`
+- `OneNoteListNotebooks`
+- `PlannerListPlans`
+
 ---
 
 ## GitHub Actions CI/CD
