@@ -33,6 +33,45 @@ jobs:
       - name: Build
         run: dotnet build src/MSGraphMCP/MSGraphMCP.csproj --no-restore -c Release
 
+      - name: Scope Smoke Endpoint (lightweight)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npm install -g azurite
+          azurite --silent --location .azurite --blobHost 127.0.0.1 --queueHost 127.0.0.1 --tableHost 127.0.0.1 &
+
+          export AzureAd__TenantId="ci-tenant-id"
+          export AzureAd__ClientId="ci-client-id"
+          export TokenCache__StorageConnectionString="UseDevelopmentStorage=true"
+
+          dotnet run --project src/MSGraphMCP --no-build > /tmp/msgraphmcp.log 2>&1 &
+
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8080/health > /dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+          if ! curl -fsS http://127.0.0.1:8080/health > /dev/null; then
+            echo "Server failed to start"
+            cat /tmp/msgraphmcp.log
+            exit 1
+          fi
+
+          status=$(curl -sS -o /tmp/scope-smoke-response.json -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -X POST http://127.0.0.1:8080/test/scope-smoke \
+            -d '{}')
+
+          if [ "$status" != "400" ]; then
+            echo "Expected HTTP 400 from /test/scope-smoke for missing sessionId, got: $status"
+            cat /tmp/scope-smoke-response.json
+            cat /tmp/msgraphmcp.log
+            exit 1
+          fi
+
       - name: Run tests
         run: |
           if [ -d "tests" ]; then
