@@ -140,6 +140,18 @@ dotnet run --project src/MSGraphMCP
 
 > **Local token cache**: Install [Azurite](https://learn.microsoft.com/en-us/azure/storage/common/storage-use-azurite) for local blob emulation, or point at a real Azure Storage account.
 
+#### One-command local startup
+
+Use the helper scripts to start Azurite (if needed) and run the app with local token cache wiring:
+
+```bash
+# macOS / Linux
+./deploy/run-local.sh
+
+# Windows PowerShell
+.\deploy\run-local.ps1
+```
+
 ### 3. Deploy to Azure
 
 ```bash
