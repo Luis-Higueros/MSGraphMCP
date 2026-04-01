@@ -150,6 +150,9 @@ Use the helper scripts to start Azurite (if needed) and run the app with local t
 
 # Windows PowerShell
 .\deploy\run-local.ps1
+
+# Windows PowerShell, force restart if already running
+.\deploy\run-local.ps1 -Restart
 ```
 
 ### 3. Deploy to Azure

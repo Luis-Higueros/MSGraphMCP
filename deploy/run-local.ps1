@@ -1,5 +1,6 @@
 param(
-    [switch]$NoAzurite
+    [switch]$NoAzurite,
+    [switch]$Restart
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,6 +29,13 @@ function Test-TcpPort {
     }
 }
 
+function Get-PortProcessIds {
+    param([int]$Port)
+
+    @(Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique)
+}
+
 if (-not $NoAzurite) {
     if (-not (Get-Command azurite -ErrorAction SilentlyContinue)) {
         throw "Azurite is not installed. Install with: npm i -g azurite"
@@ -44,9 +52,19 @@ $env:ASPNETCORE_ENVIRONMENT = "Development"
 $env:TokenCache__StorageConnectionString = $azuriteConn
 
 if (Test-TcpPort -HostName "127.0.0.1" -Port 8080) {
-    Write-Host "MSGraphMCP is already running on http://127.0.0.1:8080"
-    Write-Host "Stop the existing process first if you want to restart it."
-    return
+    if ($Restart) {
+        $processIds = Get-PortProcessIds -Port 8080
+        if ($processIds.Count -gt 0) {
+            Write-Host "Stopping existing MSGraphMCP process on port 8080: $($processIds -join ', ')"
+            $processIds | ForEach-Object { Stop-Process -Id $_ -Force }
+            Start-Sleep -Seconds 2
+        }
+    }
+    else {
+        Write-Host "MSGraphMCP is already running on http://127.0.0.1:8080"
+        Write-Host "Reusing the existing service. Run '.\run-local.ps1 -Restart' if you want a fresh process."
+        return
+    }
 }
 
 Write-Host "Starting MSGraphMCP with local Azurite token cache..."
