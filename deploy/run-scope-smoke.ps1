@@ -3,8 +3,29 @@ param(
     [string]$UserHint,
     [string]$TeamId,
     [string]$ChannelId,
-    [string]$BaseUrl = 'http://127.0.0.1:8080'
+
+    # -Target selects a preset environment:
+    #   dev  — local dev server (default)  http://127.0.0.1:8080
+    #   aci  — Azure Container Instance    http://<aci-fqdn>:8080
+    #   afd  — Azure Front Door (HTTPS)    https://<fd-hostname>  (recommended for production)
+    [ValidateSet('dev','aci','afd')]
+    [string]$Target = 'dev',
+
+    # Override the base URL entirely (takes precedence over -Target)
+    [string]$BaseUrl = ''
 )
+
+# ─── Resolve BaseUrl from -Target if not explicitly overridden ─────────────────
+if (-not $BaseUrl) {
+    $BaseUrl = switch ($Target) {
+        'dev' { 'http://127.0.0.1:8080' }
+        'aci' { 'http://msgraph-mcp-weu-27992.westeurope.azurecontainer.io:8080' }
+        'afd' { 'https://ep-msgraphmcp-43613-c6dvbtfyfccmhzf8.a03.azurefd.net' }
+    }
+}
+Write-Host "Target : $Target"
+Write-Host "BaseUrl: $BaseUrl"
+Write-Host ''
 
 $ErrorActionPreference = 'Stop'
 
@@ -46,8 +67,15 @@ function Invoke-McpHttp {
     }
 }
 
-if (-not (Test-NetConnection -ComputerName 127.0.0.1 -Port 8080 -WarningAction SilentlyContinue).TcpTestSucceeded) {
-    throw "MSGraphMCP is not running on $BaseUrl. Start it first with .\deploy\run-local.ps1"
+# ─── Connectivity pre-check ───────────────────────────────────────────────────
+try {
+    $null = Invoke-WebRequest -Uri "$BaseUrl/health" -UseBasicParsing -TimeoutSec 10
+} catch {
+    if ($Target -eq 'dev') {
+        throw "MSGraphMCP is not reachable at $BaseUrl. Start it first with .\deploy\run-local.ps1"
+    } else {
+        throw "MSGraphMCP is not reachable at $BaseUrl. Verify the container is running.`n$_"
+    }
 }
 
 $init = Invoke-McpHttp -Payload @{

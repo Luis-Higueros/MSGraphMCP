@@ -281,11 +281,32 @@ The response includes a summary and per-check status for:
 
 #### One-command smoke test runner
 
-If the app is already running locally, you can trigger the smoke test flow with one PowerShell command:
+Use `-Target` to choose which environment to test. Defaults to local dev if omitted.
 
 ```powershell
-.\deploy\run-scope-smoke.ps1 -UserHint "your.name@company.com" -TeamId "<team-id>" -ChannelId "<channel-id>"
+# Local dev (default — app must be running via run-local.ps1)
+.\deploy\run-scope-smoke.ps1 -UserHint "your.name@company.com"
+
+# Azure Container Instance (direct HTTP)
+.\deploy\run-scope-smoke.ps1 -UserHint "your.name@company.com" -Target aci
+
+# Azure Front Door (HTTPS — recommended for production validation)
+.\deploy\run-scope-smoke.ps1 -UserHint "your.name@company.com" -Target afd
+
+# With optional Teams channel checks
+.\deploy\run-scope-smoke.ps1 -UserHint "your.name@company.com" -Target afd `
+  -TeamId "<team-id>" -ChannelId "<channel-id>"
+
+# Override with a completely custom URL
+.\deploy\run-scope-smoke.ps1 -UserHint "your.name@company.com" `
+  -BaseUrl "https://my-custom-endpoint.example.com"
 ```
+
+| `-Target` | URL used |
+|---|---|
+| `dev` (default) | `http://127.0.0.1:8080` |
+| `aci` | `http://msgraph-mcp-weu-27992.westeurope.azurecontainer.io:8080` |
+| `afd` | `https://ep-msgraphmcp-43613-c6dvbtfyfccmhzf8.a03.azurefd.net` |
 
 Behavior:
 - Reuses a cached/silent login if available
