@@ -172,8 +172,30 @@ $env:AAD_CLIENT_ID = "your-client-id"
 
 The script will:
 - Create a Resource Group, ACR, Storage Account, and ACI
-- Build and push the Docker image
+- Build and push the Docker image via `az acr build` (no Docker required locally)
 - Deploy the container with environment variables injected securely
+
+> **Note:** The deploy script is for **first-time provisioning only**. After the infrastructure exists, use the update script below.
+
+### 4. Update an Existing Deployment
+
+After making code changes, push a new image and restart the running container with one command:
+
+```powershell
+# From repo root or deploy/ folder
+.\deploy\update-aci.ps1
+```
+
+What it does:
+1. Rebuilds the Docker image in ACR via cloud build (no Docker needed locally)
+2. Stops and starts the ACI container group so it pulls the new image
+3. Waits for `/health` to return `Healthy`
+4. Prints the live Front Door HTTPS URL
+
+The live HTTPS endpoint after deployment:
+```
+https://ep-msgraphmcp-43613-c6dvbtfyfccmhzf8.a03.azurefd.net/mcp
+```
 
 ---
 
