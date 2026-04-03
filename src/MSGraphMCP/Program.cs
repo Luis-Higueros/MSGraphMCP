@@ -44,6 +44,37 @@ await blobCache.EnsureContainerAsync();
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.UseRouting();
 
+// Compatibility shim for MCP connectors that probe with GET/OPTIONS before
+// sending JSON-RPC initialize over POST.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.Equals("/mcp", StringComparison.OrdinalIgnoreCase))
+    {
+        if (HttpMethods.IsGet(context.Request.Method))
+        {
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                service = "MSGraphMCP",
+                transport = "streamable-http",
+                path = "/mcp",
+                initialize = "POST /mcp"
+            });
+            return;
+        }
+
+        if (HttpMethods.IsOptions(context.Request.Method))
+        {
+            context.Response.StatusCode = StatusCodes.Status204NoContent;
+            context.Response.Headers.Append("Allow", "GET, POST, DELETE, OPTIONS");
+            return;
+        }
+    }
+
+    await next();
+});
+
 // Health check at /health
 app.MapHealthChecks("/health");
 
