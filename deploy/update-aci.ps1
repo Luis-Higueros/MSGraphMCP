@@ -19,6 +19,8 @@ $ErrorActionPreference = "Stop"
 # These values match the deployed resources in your sandbox resource group.
 # Update them if you ever provision a new environment.
 
+$TenantId      = "425a5546-5a6e-4f1b-ab62-23d91d07d893"
+$ClientId      = "ba14f7ed-4216-450f-a2ff-7a93ae92fc74"
 $Subscription  = "380d9153-35d4-45fd-a604-fe72aaf453ae"
 $ResourceGroup = "euw-ea_teamsai-sandbox-rg"
 $AcrName       = "msgraphmcp95932"

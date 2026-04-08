@@ -2,13 +2,11 @@
 # deploy-aci.ps1 — Deploy MSGraphMCP to Azure Container Instances (PowerShell)
 #
 # Usage:
-#   $env:AAD_TENANT_ID = "your-tenant-id"
-#   $env:AAD_CLIENT_ID = "your-client-id"
 #   .\deploy-aci.ps1
 #
 # Prerequisites:
 #   - Azure CLI installed and logged in (az login)
-#   - Docker Desktop running
+#   - Docker Desktop running (or use update-aci.ps1 for cloud build, no Docker needed)
 # =============================================================================
 
 Set-StrictMode -Version Latest
@@ -25,13 +23,8 @@ $AciName          = "msgraph-mcp"
 $AciDnsLabel      = "msgraph-mcp-$(Get-Random -Maximum 9999)"
 $ImageTag         = "latest"
 
-$TenantId = $env:AAD_TENANT_ID
-$ClientId = $env:AAD_CLIENT_ID
-
-if (-not $TenantId -or -not $ClientId) {
-    Write-Error "Set AAD_TENANT_ID and AAD_CLIENT_ID environment variables before running."
-    exit 1
-}
+$TenantId = "425a5546-5a6e-4f1b-ab62-23d91d07d893"
+$ClientId = "ba14f7ed-4216-450f-a2ff-7a93ae92fc74"
 
 Write-Host "🚀 Deploying MSGraphMCP to Azure Container Instances" -ForegroundColor Cyan
 Write-Host "   Resource Group : $ResourceGroup ($Location)"
