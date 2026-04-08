@@ -30,7 +30,8 @@ builder.Services
     .WithTools<TeamsTools>()
     .WithTools<FilesTools>()
     .WithTools<OneNoteTools>()
-    .WithTools<PlannerTools>();
+    .WithTools<PlannerTools>()
+    .WithTools<SharePointTools>();
 
 // ── Health check endpoint (used by ACI liveness probe) ───────────────────────
 builder.Services.AddHealthChecks();

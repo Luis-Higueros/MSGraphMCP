@@ -62,6 +62,16 @@ An MCP (Model Context Protocol) server exposing Microsoft 365 capabilities — M
 | `files_search` | Search files by name or content. |
 | `files_create_share_link` | Generate a shareable link. |
 
+### SharePoint
+| Tool | Description |
+|---|---|
+| `sharepoint_list_sites` | Search SharePoint sites by keyword. Returns `siteId`, `displayName`, `webUrl`. |
+| `sharepoint_list_drives` | List document libraries (drives) for a given SharePoint site. |
+| `sharepoint_list_items` | List files/folders in a SharePoint drive at root or nested folder path. |
+| `sharepoint_get_content` | Download text content from a SharePoint file by `driveId` + `itemId`. |
+| `sharepoint_upload_text` | Upload or overwrite a text file in a SharePoint drive. |
+| `sharepoint_create_share_link` | Create a shareable link for a SharePoint file (view/edit, organization/anonymous). |
+
 ### OneNote
 | Tool | Description |
 |---|---|
