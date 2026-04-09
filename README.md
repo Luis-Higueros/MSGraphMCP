@@ -10,6 +10,8 @@ An MCP (Model Context Protocol) server exposing Microsoft 365 capabilities — M
 - **Proactive token refresh** — background timer silently renews access tokens 5 minutes before expiry
 - **Session management** — stateful sessions keyed by `sessionId`; Relevance AI passes it as a header on every call
 - **Intelligent tools** — free-slot finder with timezone awareness, multi-month email search, meeting time suggestions via Graph's native `findMeetingTimes` API, and more
+- **Argument validation** — all tool arguments validated against JSON schemas at runtime; invalid requests rejected before tool execution
+- **MCP endpoint** — available at both `/mcp` and `/mcp/` (trailing slash normalized automatically)
 - **Azure-ready** — Dockerfile + deployment scripts (Bash + PowerShell) for ACI; GitHub Actions CI/CD included
 
 ---
