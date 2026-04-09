@@ -64,10 +64,16 @@ await blobCache.EnsureContainerAsync();
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.UseRouting();
 
+static bool IsMcpPath(PathString path)
+{
+    return path.Equals("/mcp", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/mcp/", StringComparison.OrdinalIgnoreCase);
+}
+
 // Optional origin allow-list for MCP endpoint. Disabled by default.
 app.Use(async (context, next) =>
 {
-    if (!context.Request.Path.Equals("/mcp", StringComparison.OrdinalIgnoreCase))
+    if (!IsMcpPath(context.Request.Path))
     {
         await next();
         return;
@@ -106,7 +112,7 @@ app.Use(async (context, next) =>
 // sending JSON-RPC initialize over POST.
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path.Equals("/mcp", StringComparison.OrdinalIgnoreCase))
+    if (IsMcpPath(context.Request.Path))
     {
         if (HttpMethods.IsGet(context.Request.Method))
         {
@@ -138,6 +144,8 @@ app.MapHealthChecks("/health");
 
 // MCP endpoint at /mcp
 app.MapMcp("/mcp");
+// Mapping MCP/ as well as MCP since some clients will add the backslash to MCP endpoint.
+app.MapMcp("/mcp/");
 
 // Lightweight smoke endpoint to validate delegated Graph scopes for an existing session.
 app.MapPost("/test/scope-smoke", async (ScopeSmokeRequest request, SessionStore sessionStore) =>
