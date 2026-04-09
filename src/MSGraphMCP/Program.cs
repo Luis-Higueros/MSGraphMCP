@@ -10,6 +10,16 @@ builder.Configuration
     .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true)
     .AddEnvironmentVariables(); // Env vars override appsettings (important for ACI)
 
+var originAllowListEnabled = builder.Configuration.GetValue<bool>("Mcp:OriginAllowListEnabled", false);
+var configuredOrigins = builder.Configuration.GetSection("Mcp:AllowedOrigins").Get<string[]>() ?? [];
+var envOrigins = (Environment.GetEnvironmentVariable("MCP_ALLOWED_ORIGINS") ?? string.Empty)
+    .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+var allowedOrigins = configuredOrigins
+    .Concat(envOrigins)
+    .Where(static origin => !string.IsNullOrWhiteSpace(origin))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
 // ── Logging ───────────────────────────────────────────────────────────────────
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
@@ -20,23 +30,32 @@ builder.Services.AddSingleton<GraphAuthProvider>();
 builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SessionStore>());
 
+var validatedTools = McpToolRegistration.CreateValidatedTools(
+    builder.Services,
+    typeof(AuthTools),
+    typeof(MailTools),
+    typeof(CalendarTools),
+    typeof(TeamsTools),
+    typeof(FilesTools),
+    typeof(OneNoteTools),
+    typeof(PlannerTools),
+    typeof(SharePointTools));
+
 // ── MCP Server (HTTP/SSE transport) ──────────────────────────────────────────
 builder.Services
     .AddMcpServer()
     .WithHttpTransport()
-    .WithTools<AuthTools>()
-    .WithTools<MailTools>()
-    .WithTools<CalendarTools>()
-    .WithTools<TeamsTools>()
-    .WithTools<FilesTools>()
-    .WithTools<OneNoteTools>()
-    .WithTools<PlannerTools>()
-    .WithTools<SharePointTools>();
+    .WithTools(validatedTools);
 
 // ── Health check endpoint (used by ACI liveness probe) ───────────────────────
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
+
+if (originAllowListEnabled)
+{
+    app.Logger.LogInformation("MCP origin allow-list enforcement enabled with {Count} allowed origin(s).", allowedOrigins.Count);
+}
 
 // ── Startup: ensure blob container exists ────────────────────────────────────
 var blobCache = app.Services.GetRequiredService<BlobTokenCache>();
@@ -44,6 +63,44 @@ await blobCache.EnsureContainerAsync();
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.UseRouting();
+
+// Optional origin allow-list for MCP endpoint. Disabled by default.
+app.Use(async (context, next) =>
+{
+    if (!context.Request.Path.Equals("/mcp", StringComparison.OrdinalIgnoreCase))
+    {
+        await next();
+        return;
+    }
+
+    var origin = context.Request.Headers.Origin.ToString();
+    if (string.IsNullOrWhiteSpace(origin))
+    {
+        await next();
+        return;
+    }
+
+    if (!originAllowListEnabled)
+    {
+        await next();
+        return;
+    }
+
+    if (!allowedOrigins.Contains(origin))
+    {
+        app.Logger.LogWarning("MCP request denied for origin {Origin}; allow-list enforcement is enabled.", origin);
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "origin_not_allowed",
+            origin
+        });
+        return;
+    }
+
+    await next();
+});
 
 // Compatibility shim for MCP connectors that probe with GET/OPTIONS before
 // sending JSON-RPC initialize over POST.
