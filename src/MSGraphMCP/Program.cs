@@ -70,6 +70,17 @@ static bool IsMcpPath(PathString path)
         || path.Equals("/mcp/", StringComparison.OrdinalIgnoreCase);
 }
 
+// Mapping MCP/ as well as MCP since some clients will add the backslash to MCP endpoint.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.Equals("/mcp/", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Request.Path = "/mcp";
+    }
+
+    await next();
+});
+
 // Optional origin allow-list for MCP endpoint. Disabled by default.
 app.Use(async (context, next) =>
 {
@@ -144,8 +155,6 @@ app.MapHealthChecks("/health");
 
 // MCP endpoint at /mcp
 app.MapMcp("/mcp");
-// Mapping MCP/ as well as MCP since some clients will add the backslash to MCP endpoint.
-app.MapMcp("/mcp/");
 
 // Lightweight smoke endpoint to validate delegated Graph scopes for an existing session.
 app.MapPost("/test/scope-smoke", async (ScopeSmokeRequest request, SessionStore sessionStore) =>
