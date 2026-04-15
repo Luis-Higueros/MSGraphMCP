@@ -325,6 +325,213 @@ Behavior:
 - If interactive sign-in is still required, it prints the device-code URL and code
 - Calls `/test/scope-smoke` and prints the JSON result
 
+### Tool Test Scripts
+
+Use the scripts below for repeatable validation against local, ACI, or Front Door endpoints.
+
+#### 1) Mail search matrix test
+
+Script: [deploy/test-mail-search.ps1](deploy/test-mail-search.ps1)
+
+Purpose:
+- Reproduces and validates `MailSearch` behavior across key argument combinations
+- Confirms baseline, keyword-only, date-only, and keyword+date scenarios
+
+Examples:
+
+```powershell
+# Run full matrix against Front Door
+.\deploy\test-mail-search.ps1 \
+  -GraphSessionId "<graph-session-id>" \
+  -BaseUrl "https://ep-msgraphmcp-43613-c6dvbtfyfccmhzf8.a03.azurefd.net" \
+  -Since "2026-03-19" -Until "2026-04-09" \
+  -Keywords "Meeting Summarized" \
+  -Matrix
+
+# Single MailSearch call (no matrix)
+.\deploy\test-mail-search.ps1 \
+  -GraphSessionId "<graph-session-id>" \
+  -Keywords "project alpha"
+```
+
+#### 2) Comprehensive all-tools test
+
+Script: [deploy/test-all-tools.ps1](deploy/test-all-tools.ps1)
+
+Purpose:
+- Runs broad validation across Auth, Mail, Calendar, Files, SharePoint, Teams, OneNote, and Planner
+- Executes read-only checks by default
+- Runs mutation checks only when `-IncludeMutations` is specified
+
+Read-only run (recommended first):
+
+```powershell
+.\deploy\test-all-tools.ps1 \
+  -GraphSessionId "<graph-session-id>" \
+  -Target afd \
+  -JsonOutputPath ".\deploy\reports\all-tools-readonly.json"
+```
+
+Run using user hint (script handles silent auth or prompts device-code flow):
+
+```powershell
+.\deploy\test-all-tools.ps1 \
+  -UserHint "your.name@company.com" \
+  -Target afd \
+  -JsonOutputPath ".\deploy\reports\all-tools-readonly.json"
+```
+
+Mutation-inclusive run (creates/sends/updates):
+
+```powershell
+.\deploy\test-all-tools.ps1 \
+  -GraphSessionId "<graph-session-id>" \
+  -Target afd \
+  -IncludeMutations \
+  -MailSendTo "your.name@company.com" \
+  -JsonOutputPath ".\deploy\reports\all-tools-mutations.json"
+```
+
+Notes:
+- Exit code is non-zero when one or more tests fail.
+- The JSON report includes per-tool `status` (`pass`, `fail`, `skipped`) and `note` fields for diagnosis.
+- `skipped` usually means a dependency was unavailable (for example no site/team/chat/page IDs discovered) or mutation tests were not enabled.
+
+#### 3) Mail summarize context test (raw MCP curl)
+
+Use this when you want to validate a natural-language summary request exactly as an MCP client would send it.
+
+PowerShell-first option (simpler):
+
+Script: [deploy/test-mail-summarize-context.ps1](deploy/test-mail-summarize-context.ps1)
+
+```powershell
+# Use an existing authenticated Graph session
+.\deploy\test-mail-summarize-context.ps1 \
+  -GraphSessionId "<graph-session-id>" \
+  -Folder "inbox" \
+  -Target afd \
+  -JsonOutputPath ".\deploy\reports\mail-summarize-context-latest.json"
+
+# Or let the script perform GraphInitiateLogin using your user hint
+.\deploy\test-mail-summarize-context.ps1 \
+  -UserHint "your.name@company.com" \
+  -Folder "inbox" \
+  -Target afd \
+  -JsonOutputPath ".\deploy\reports\mail-summarize-context-latest.json"
+```
+
+Folder notes:
+- Use `-Folder "inbox"` to scope results to Inbox only.
+- Other supported well-known values: `sentitems`, `drafts`, `archive`, `deleteditems`, `junkemail`.
+- You can also pass a specific Mail folder ID.
+
+This script handles:
+- `initialize` and transport `mcp-session-id` automatically
+- validation of `GraphSessionId`
+- fallback to `GraphInitiateLogin` when `-UserHint` is provided
+- execution of `MailSummarize` with context/keywords/date window
+- writing the structured response payload to JSON
+
+Step A: initialize MCP transport and capture the `mcp-session-id` header.
+
+```bash
+BASE="https://ep-msgraphmcp-43613-c6dvbtfyfccmhzf8.a03.azurefd.net/mcp"
+
+curl -i -sS -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":1,
+    "method":"initialize",
+    "params":{
+      "protocolVersion":"2024-11-05",
+      "capabilities":{},
+      "clientInfo":{"name":"curl-context-test","version":"1.0"}
+    }
+  }'
+```
+
+From the response headers, copy:
+- `mcp-session-id` into `SID`
+
+Also set your authenticated Graph session ID from `GraphInitiateLogin` / `GraphCheckLoginStatus`:
+- `GRAPH_SID`
+
+Step B: call `MailSummarize` with your context prompt.
+
+```bash
+SID="<mcp-session-id-from-initialize>"
+GRAPH_SID="80d209b878c749c3aa43c09ac0c38bfd"
+BASE="https://ep-msgraphmcp-43613-c6dvbtfyfccmhzf8.a03.azurefd.net/mcp"
+
+curl -sS -X POST "$BASE" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-session-id: $SID" \
+  -d "{
+    \"jsonrpc\":\"2.0\",
+    \"id\":3,
+    \"method\":\"tools/call\",
+    \"params\":{
+      \"name\":\"MailSummarize\",
+      \"arguments\":{
+        \"sessionId\":\"$GRAPH_SID\",
+        \"context\":\"Summarize emails containing the exact phrase Meeting Summarized between 2026-03-19 and 2026-04-09.\",
+        \"keywords\":\"Meeting Summarized\",
+        \"since\":\"2026-03-19\",
+        \"until\":\"2026-04-09\",
+        \"maxEmails\":30
+      }
+    }
+  }"
+```
+
+Expected outcome:
+- MCP returns `result.content[0].text` with a JSON payload containing:
+  - `summarizationRequest: true`
+  - `context`
+  - `instructions`
+  - `data` (the structured `MailSearch` output used for summarization)
+
+Troubleshooting:
+- If you get `{"error":{"code":-32001,"message":"Session not found"}}`, your Graph session ID is expired.
+- Refresh `GRAPH_SID` by calling `GraphInitiateLogin` and confirming `GraphCheckLoginStatus` is `authenticated`, then re-run the command.
+
+### Test Scripts At A Glance
+
+- [deploy/test-mail-search.ps1](deploy/test-mail-search.ps1): MailSearch matrix validation.
+- [deploy/test-mail-summarize-context.ps1](deploy/test-mail-summarize-context.ps1): focused MailSummarize context test.
+- [deploy/test-all-tools.ps1](deploy/test-all-tools.ps1): broad cross-tool read-only and optional mutation validation.
+
+#### 4) Full validation runner (all-in-one)
+
+Script: [deploy/run-full-validation.ps1](deploy/run-full-validation.ps1)
+
+Purpose:
+- Runs `test-all-tools`, `test-mail-search` matrix, and `test-mail-summarize-context` in sequence
+- Produces timestamped logs and JSON artifacts under `deploy/reports`
+
+Examples:
+
+```powershell
+# Use existing Graph session
+.\deploy\run-full-validation.ps1 \
+  -GraphSessionId "<graph-session-id>" \
+  -Target afd
+
+# Or let the script authenticate with user hint
+.\deploy\run-full-validation.ps1 \
+  -UserHint "your.name@company.com" \
+  -Target afd
+```
+
+Outputs:
+- `deploy/reports/full-validation-<timestamp>.log`
+- `deploy/reports/all-tools-fullrun-<timestamp>.json`
+- `deploy/reports/mail-summarize-context-<timestamp>.json`
+
 ---
 
 ## GitHub Actions CI/CD

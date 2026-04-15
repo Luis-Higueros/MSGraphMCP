@@ -22,6 +22,7 @@ secrets.json
 ## Logs
 *.log
 logs/
+deploy/reports/
 
 ## OS
 .DS_Store
