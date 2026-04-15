@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MSGraphMCP</RootNamespace>
+    <AssemblyName>MSGraphMCP</AssemblyName>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- MCP Server SDK -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.2.0-preview.3" />
+
+    <!-- Microsoft Graph -->
+    <PackageReference Include="Microsoft.Graph" Version="5.65.0" />
+
+    <!-- MSAL + Token Cache Extensions -->
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.67.2" />
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.67.2" />
+
+    <!-- Azure Blob Storage (for persistent token cache) -->
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.22.2" />
+
+    <!-- Configuration & Hosting -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="9.0.0" />
+
+    <!-- Resilience (retry on Graph 429 throttling) -->
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="9.0.0" />
+    <PackageReference Include="Polly" Version="8.4.2" />
+  </ItemGroup>
+
+</Project>

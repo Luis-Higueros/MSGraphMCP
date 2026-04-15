@@ -1,0 +1,44 @@
+## .NET / C#
+bin/
+obj/
+*.user
+*.suo
+.vs/
+_ReSharper*/
+*.DotSettings.user
+
+## Build output
+publish/
+out/
+artifacts/
+
+## Secrets — NEVER commit these
+appsettings.Production.json
+appsettings.Local.json
+.env
+.env.*
+secrets.json
+
+## Logs
+*.log
+logs/
+deploy/reports/
+
+## OS
+.DS_Store
+Thumbs.db
+
+## JetBrains Rider
+.idea/
+
+## VS Code
+.vscode/
+!.vscode/extensions.json
+
+## NuGet
+*.nupkg
+packages/
+
+## Azure
+.azure/
+.azurite/

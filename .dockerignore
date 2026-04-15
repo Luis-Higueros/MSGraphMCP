@@ -1,0 +1,15 @@
+**/.vs
+**/.vscode
+**/.idea
+**/bin
+**/obj
+**/*.user
+**/*.log
+deploy/
+.github/
+.gitignore
+*.md
+.env
+.env.*
+appsettings.Local.json
+appsettings.Production.json

@@ -1,0 +1,134 @@
+name: Build and Deploy to ACI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  ACR_NAME: msgraphmcpacr
+  ACI_NAME: msgraph-mcp
+  RESOURCE_GROUP: rg-msgraph-mcp
+  IMAGE_NAME: msgraphmcp
+
+jobs:
+  # ── Build & Test ─────────────────────────────────────────────────────────────
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore src/MSGraphMCP/MSGraphMCP.csproj
+
+      - name: Build
+        run: dotnet build src/MSGraphMCP/MSGraphMCP.csproj --no-restore -c Release
+
+      - name: Scope Smoke Endpoint (lightweight)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npm install -g azurite
+          azurite --silent --location .azurite --blobHost 127.0.0.1 --queueHost 127.0.0.1 --tableHost 127.0.0.1 &
+
+          export AzureAd__TenantId="ci-tenant-id"
+          export AzureAd__ClientId="ci-client-id"
+          export TokenCache__StorageConnectionString="UseDevelopmentStorage=true"
+
+          dotnet run --project src/MSGraphMCP --no-build > /tmp/msgraphmcp.log 2>&1 &
+
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8080/health > /dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+          if ! curl -fsS http://127.0.0.1:8080/health > /dev/null; then
+            echo "Server failed to start"
+            cat /tmp/msgraphmcp.log
+            exit 1
+          fi
+
+          status=$(curl -sS -o /tmp/scope-smoke-response.json -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -X POST http://127.0.0.1:8080/test/scope-smoke \
+            -d '{}')
+
+          if [ "$status" != "400" ]; then
+            echo "Expected HTTP 400 from /test/scope-smoke for missing sessionId, got: $status"
+            cat /tmp/scope-smoke-response.json
+            cat /tmp/msgraphmcp.log
+            exit 1
+          fi
+
+      - name: Run tests
+        run: |
+          if [ -d "tests" ]; then
+            dotnet test --no-restore --verbosity normal
+          else
+            echo "No test project found, skipping."
+          fi
+
+      - name: Build Docker image (validation)
+        run: docker build -t ${{ env.IMAGE_NAME }}:ci .
+
+  # ── Deploy (main branch only) ─────────────────────────────────────────────
+  deploy:
+    name: Deploy to ACI
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to ACR
+        run: |
+          az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build & Push image
+        run: |
+          IMAGE_TAG=${{ github.sha }}
+          FULL_IMAGE="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
+          LATEST_IMAGE="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest"
+
+          docker build -t "$FULL_IMAGE" -t "$LATEST_IMAGE" .
+          docker push "$FULL_IMAGE"
+          docker push "$LATEST_IMAGE"
+
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "FULL_IMAGE=${FULL_IMAGE}" >> $GITHUB_ENV
+
+      - name: Update ACI with new image
+        run: |
+          az container restart \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.ACI_NAME }}
+
+      - name: Verify deployment health
+        run: |
+          echo "Waiting 30s for container to start..."
+          sleep 30
+          FQDN=$(az container show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.ACI_NAME }} \
+            --query ipAddress.fqdn -o tsv)
+          curl -f "http://${FQDN}:8080/health" || exit 1
+          echo "✅ Health check passed: http://${FQDN}:8080"
