@@ -118,6 +118,97 @@ AppRequests
 | order by TimeGenerated desc
 ```
 
+## 12. MCP tool latency and error rate by tool name
+
+```kusto
+AppRequests
+| where TimeGenerated > ago(24h)
+| extend ToolName = tostring(Properties["mcp.tool_name"])
+| where isnotempty(ToolName)
+| summarize
+	calls=count(),
+	failures=countif(Success == false or toint(ResultCode) >= 400),
+	p50=percentile(DurationMs, 50),
+	p95=percentile(DurationMs, 95),
+	p99=percentile(DurationMs, 99)
+	by ToolName
+| extend errorRatePct = round(100.0 * todouble(failures) / todouble(calls), 2)
+| order by failures desc, p95 desc
+```
+
+## 13. Correlated MCP request waterfall (single transport session)
+
+```kusto
+let targetTransportSession = "<mcp-transport-session-id>";
+union
+(
+	AppRequests
+	| extend ItemType = "request", Message = Name, Duration = DurationMs, SuccessFlag = tostring(Success)
+	| extend TransportSessionId = tostring(Properties["mcp.transport_session_id"])
+	| where TransportSessionId == targetTransportSession
+	| project TimeGenerated, ItemType, Message, Duration, ResultCode, SuccessFlag, OperationId, OperationName, TransportSessionId
+),
+(
+	AppDependencies
+	| extend ItemType = "dependency", Message = strcat(DependencyType, ": ", Name, " -> ", Target), Duration = DurationMs, SuccessFlag = tostring(Success)
+	| where OperationId in (
+		AppRequests
+		| extend TransportSessionId = tostring(Properties["mcp.transport_session_id"])
+		| where TransportSessionId == targetTransportSession
+		| project OperationId
+	)
+	| project TimeGenerated, ItemType, Message, Duration, ResultCode, SuccessFlag, OperationId, OperationName, TransportSessionId = ""
+),
+(
+	AppTraces
+	| extend ItemType = "trace", Duration = real(null), ResultCode = "", SuccessFlag = ""
+	| where OperationId in (
+		AppRequests
+		| extend TransportSessionId = tostring(Properties["mcp.transport_session_id"])
+		| where TransportSessionId == targetTransportSession
+		| project OperationId
+	)
+	| project TimeGenerated, ItemType, Message, Duration, ResultCode, SuccessFlag, OperationId, OperationName, TransportSessionId = ""
+)
+| order by TimeGenerated asc
+```
+
+## 14. Potential silent outage detector (request gaps)
+
+```kusto
+AppRequests
+| where TimeGenerated > ago(24h)
+| summarize calls=count() by bin(TimeGenerated, 5m)
+| order by TimeGenerated asc
+| extend gap = iff(calls == 0, 1, 0)
+```
+
+Tip: if you see multi-bin gaps while clients report 504 and AppRequests has no matching failures, that usually indicates the request never reached the app (for example Front Door origin timeout or origin down).
+
+## 15. Azure Activity evidence of ACI stop/start (if Activity Log is ingested)
+
+```kusto
+AzureActivity
+| where TimeGenerated > ago(7d)
+| where ResourceProviderValue =~ "MICROSOFT.CONTAINERINSTANCE"
+| where Resource =~ "msgraph-mcp-27992"
+| where OperationNameValue has_any ("/stop/action", "/start/action", "/restart/action")
+| project TimeGenerated, OperationNameValue, ActivityStatusValue, Caller, ResourceGroup, ResourceId
+| order by TimeGenerated desc
+```
+
+## 16. Front Door origin timeout evidence (if Front Door diagnostics are enabled to Log Analytics)
+
+```kusto
+AzureDiagnostics
+| where TimeGenerated > ago(24h)
+| where ResourceProvider == "MICROSOFT.CDN"
+| where Category has "FrontDoor"
+| where toint(httpStatusCode_s) == 504 or errorInfo_s has "OriginTimeout"
+| project TimeGenerated, host_s, requestUri_s, httpStatusCode_s, errorInfo_s, clientIp_s
+| order by TimeGenerated desc
+```
+
 ## Suggested Workbook Tiles
 
 - Request volume (requests count by 5m)
