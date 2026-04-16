@@ -31,6 +31,9 @@
     <!-- Resilience (retry on Graph 429 throttling) -->
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="9.0.0" />
     <PackageReference Include="Polly" Version="8.4.2" />
+
+    <!-- Telemetry -->
+    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.22.0" />
   </ItemGroup>
 
 </Project>

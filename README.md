@@ -505,6 +505,35 @@ Troubleshooting:
 - [deploy/test-mail-summarize-context.ps1](deploy/test-mail-summarize-context.ps1): focused MailSummarize context test.
 - [deploy/test-all-tools.ps1](deploy/test-all-tools.ps1): broad cross-tool read-only and optional mutation validation.
 
+### Telemetry (Application Insights + KQL)
+
+This project supports Azure Application Insights telemetry using the standard environment variable:
+
+- `APPLICATIONINSIGHTS_CONNECTION_STRING`
+
+When configured, the app sends request, dependency, trace, and exception telemetry.
+
+#### Recommended setup for ACI deployment
+
+1. Create (or reuse) a Log Analytics workspace.
+2. Create a workspace-based Application Insights component.
+3. Set `APPLICATIONINSIGHTS_CONNECTION_STRING` on the container group.
+4. Redeploy/restart container.
+
+#### KQL dashboard pack
+
+Use the ready-to-run query pack:
+
+- [deploy/kql-dashboard-pack.md](deploy/kql-dashboard-pack.md)
+
+It includes queries for:
+
+- Request stream and latency percentiles
+- Error summaries and exceptions
+- Dependency failures
+- MCP-specific traces (`/mcp`, `initialize`, `tools/call`)
+- Health endpoint behavior
+
 #### 4) Full validation runner (all-in-one)
 
 Script: [deploy/run-full-validation.ps1](deploy/run-full-validation.ps1)

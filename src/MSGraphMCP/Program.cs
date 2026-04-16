@@ -24,6 +24,9 @@ var allowedOrigins = configuredOrigins
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
+// ── Telemetry ────────────────────────────────────────────────────────────────
+builder.Services.AddApplicationInsightsTelemetry();
+
 // ── Core Services ─────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<BlobTokenCache>();
 builder.Services.AddSingleton<GraphAuthProvider>();
@@ -55,6 +58,17 @@ var app = builder.Build();
 if (originAllowListEnabled)
 {
     app.Logger.LogInformation("MCP origin allow-list enforcement enabled with {Count} allowed origin(s).", allowedOrigins.Count);
+}
+
+var aiConnectionString = builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]
+    ?? builder.Configuration["ApplicationInsights:ConnectionString"];
+if (string.IsNullOrWhiteSpace(aiConnectionString))
+{
+    app.Logger.LogWarning("Application Insights connection string is not configured. Telemetry will not be sent.");
+}
+else
+{
+    app.Logger.LogInformation("Application Insights telemetry is enabled.");
 }
 
 // ── Startup: ensure blob container exists ────────────────────────────────────
