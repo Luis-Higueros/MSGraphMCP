@@ -400,25 +400,39 @@ public class MailTools(SessionStore sessionStore, ILogger<MailTools> logger)
         [Description("If true, body is treated as HTML. Default: false (plain text).")]
         bool isHtml = false)
     {
-        var ctx = GetSession(sessionId);
-
-        var ccRecipients = cc?.Split(',')
-            .Select(e => new Recipient { EmailAddress = new() { Address = e.Trim() } })
-            .ToList();
-
-        await ctx.GraphClient!.Me.SendMail.PostAsync(new()
+        try
         {
-            Message = new()
-            {
-                Subject = subject,
-                Body = new() { ContentType = isHtml ? BodyType.Html : BodyType.Text, Content = body },
-                ToRecipients = [new() { EmailAddress = new() { Address = recipient } }],
-                CcRecipients = ccRecipients
-            },
-            SaveToSentItems = true
-        });
+            var ctx = GetSession(sessionId);
 
-        return new { status = "sent", to = recipient, subject };
+            var ccRecipients = cc?.Split(',')
+                .Select(e => new Recipient { EmailAddress = new() { Address = e.Trim() } })
+                .ToList();
+
+            await ctx.GraphClient!.Me.SendMail.PostAsync(new()
+            {
+                Message = new()
+                {
+                    Subject = subject,
+                    Body = new() { ContentType = isHtml ? BodyType.Html : BodyType.Text, Content = body },
+                    ToRecipients = [new() { EmailAddress = new() { Address = recipient } }],
+                    CcRecipients = ccRecipients
+                },
+                SaveToSentItems = true
+            });
+
+            return new { status = "sent", to = recipient, subject };
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Session") || ex.Message.Contains("authenticated"))
+        {
+            logger.LogWarning("MailSend failed due to session issue: {Message}", ex.Message);
+            return new { status = "error", error = "session_error", message = ex.Message };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "MailSend failed. sessionId={SessionId}, recipient={Recipient}, subject={Subject}",
+                sessionId, recipient, subject);
+            return new { status = "error", error = "send_failed", message = ex.Message };
+        }
     }
 
     [McpServerTool]
