@@ -89,6 +89,35 @@ union AppRequests, AppTraces, AppExceptions, AppDependencies
 | order by TimeGenerated desc
 ```
 
+## 10. MCP correlation fields on requests (session/tool)
+
+```kusto
+AppRequests
+| where TimeGenerated > ago(24h)
+| extend ToolName = tostring(Properties["mcp.tool_name"])
+| extend GraphSessionId = tostring(Properties["mcp.graph_session_id"])
+| extend TransportSessionId = tostring(Properties["mcp.transport_session_id"])
+| extend McpMethod = tostring(Properties["mcp.method"])
+| where isnotempty(ToolName) or isnotempty(GraphSessionId) or isnotempty(TransportSessionId)
+| project TimeGenerated, Name, ResultCode, Success, DurationMs, ToolName, GraphSessionId, TransportSessionId, McpMethod
+| order by TimeGenerated desc
+```
+
+## 11. Filter by a specific Graph session or tool
+
+```kusto
+let targetSession = "<graph-session-id>";
+let targetTool = "MailSummarize";
+AppRequests
+| where TimeGenerated > ago(24h)
+| extend ToolName = tostring(Properties["mcp.tool_name"])
+| extend GraphSessionId = tostring(Properties["mcp.graph_session_id"])
+| where (targetSession == "<graph-session-id>" or GraphSessionId == targetSession)
+	and (targetTool == "MailSummarize" or ToolName == targetTool)
+| project TimeGenerated, Name, ResultCode, Success, DurationMs, ToolName, GraphSessionId
+| order by TimeGenerated desc
+```
+
 ## Suggested Workbook Tiles
 
 - Request volume (requests count by 5m)

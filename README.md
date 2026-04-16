@@ -526,6 +526,26 @@ Use the ready-to-run query pack:
 
 - [deploy/kql-dashboard-pack.md](deploy/kql-dashboard-pack.md)
 
+#### Create/update Azure Workbook from KQL pack
+
+Script:
+
+- [deploy/create-observability-workbook.ps1](deploy/create-observability-workbook.ps1)
+
+Example:
+
+```powershell
+.\deploy\create-observability-workbook.ps1
+```
+
+#### Permanent Azure CLI extension cache repair
+
+If `az` commands fail due corrupted local extension metadata, run:
+
+```powershell
+.\deploy\fix-azure-cli-extension-cache.ps1
+```
+
 It includes queries for:
 
 - Request stream and latency percentiles

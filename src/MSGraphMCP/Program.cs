@@ -1,5 +1,9 @@
+using System.Diagnostics;
+using System.Text.Json;
+using Microsoft.ApplicationInsights.Extensibility;
 using MSGraphMCP.Auth;
 using MSGraphMCP.Session;
+using MSGraphMCP.Telemetry;
 using MSGraphMCP.Tools;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,6 +30,8 @@ builder.Logging.AddConsole();
 
 // ── Telemetry ────────────────────────────────────────────────────────────────
 builder.Services.AddApplicationInsightsTelemetry();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<ITelemetryInitializer, McpCorrelationTelemetryInitializer>();
 
 // ── Core Services ─────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<BlobTokenCache>();
@@ -128,6 +134,82 @@ app.Use(async (context, next) =>
             origin
         });
         return;
+    }
+
+    await next();
+});
+
+// Capture MCP correlation fields for telemetry enrichment.
+app.Use(async (context, next) =>
+{
+    if (!IsMcpPath(context.Request.Path))
+    {
+        await next();
+        return;
+    }
+
+    var transportSessionId = context.Request.Headers["mcp-session-id"].ToString();
+    if (!string.IsNullOrWhiteSpace(transportSessionId))
+    {
+        context.Items[McpTelemetryKeys.TransportSessionId] = transportSessionId;
+        Activity.Current?.SetTag("mcp.transport_session_id", transportSessionId);
+    }
+
+    if (HttpMethods.IsPost(context.Request.Method)
+        && context.Request.ContentType?.Contains("application/json", StringComparison.OrdinalIgnoreCase) == true)
+    {
+        context.Request.EnableBuffering();
+        try
+        {
+            using var payload = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: context.RequestAborted);
+            if (payload.RootElement.TryGetProperty("method", out var methodEl)
+                && methodEl.ValueKind == JsonValueKind.String)
+            {
+                var method = methodEl.GetString();
+                if (!string.IsNullOrWhiteSpace(method))
+                {
+                    context.Items[McpTelemetryKeys.Method] = method;
+                    Activity.Current?.SetTag("mcp.method", method);
+                }
+            }
+
+            if (payload.RootElement.TryGetProperty("params", out var paramsEl)
+                && paramsEl.ValueKind == JsonValueKind.Object)
+            {
+                if (paramsEl.TryGetProperty("name", out var toolEl)
+                    && toolEl.ValueKind == JsonValueKind.String)
+                {
+                    var toolName = toolEl.GetString();
+                    if (!string.IsNullOrWhiteSpace(toolName))
+                    {
+                        context.Items[McpTelemetryKeys.ToolName] = toolName;
+                        Activity.Current?.SetTag("mcp.tool_name", toolName);
+                    }
+                }
+
+                if (paramsEl.TryGetProperty("arguments", out var argsEl)
+                    && argsEl.ValueKind == JsonValueKind.Object
+                    && argsEl.TryGetProperty("sessionId", out var graphSessionEl)
+                    && graphSessionEl.ValueKind == JsonValueKind.String)
+                {
+                    var graphSessionId = graphSessionEl.GetString();
+                    if (!string.IsNullOrWhiteSpace(graphSessionId))
+                    {
+                        context.Items[McpTelemetryKeys.GraphSessionId] = graphSessionId;
+                        Activity.Current?.SetTag("mcp.graph_session_id", graphSessionId);
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Ignore non-JSON payloads to avoid impacting MCP execution.
+        }
+        finally
+        {
+            if (context.Request.Body.CanSeek)
+                context.Request.Body.Position = 0;
+        }
     }
 
     await next();
