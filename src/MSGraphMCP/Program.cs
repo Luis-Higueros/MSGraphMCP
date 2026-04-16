@@ -39,6 +39,14 @@ builder.Services.AddSingleton<GraphAuthProvider>();
 builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SessionStore>());
 
+// ── Kestrel Configuration (connection keep-alive and timeouts) ───────────────
+builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
+{
+    // Extend keep-alive to reduce connection reset errors from Front Door idle timeout
+    options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(5);
+    options.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(2);
+});
+
 var validatedTools = McpToolRegistration.CreateValidatedTools(
     builder.Services,
     typeof(AuthTools),
