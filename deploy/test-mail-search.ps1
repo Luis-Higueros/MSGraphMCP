@@ -8,6 +8,7 @@ param(
     [string]$Since = '',
     [string]$Until = '',
     [int]$MaxResults = 25,
+    [switch]$IncludeBody,
 
     # Run a small matrix to isolate failure patterns.
     [switch]$Matrix
@@ -113,9 +114,9 @@ Write-Host ''
 if ($Matrix) {
     $testMatrix = @(
         @{ label = 'No keywords'; args = @{ sessionId = $GraphSessionId; maxResults = $MaxResults } },
-        @{ label = 'Keywords only'; args = @{ sessionId = $GraphSessionId; keywords = $Keywords; folder = $Folder; maxResults = $MaxResults } },
-        @{ label = 'Date range only'; args = @{ sessionId = $GraphSessionId; folder = $Folder; since = $Since; until = $Until; maxResults = $MaxResults } },
-        @{ label = 'Keywords + date range'; args = @{ sessionId = $GraphSessionId; keywords = $Keywords; folder = $Folder; since = $Since; until = $Until; maxResults = $MaxResults } }
+        @{ label = 'Keywords only'; args = @{ sessionId = $GraphSessionId; keywords = $Keywords; folder = $Folder; maxResults = $MaxResults; includeBody = [bool]$IncludeBody } },
+        @{ label = 'Date range only'; args = @{ sessionId = $GraphSessionId; folder = $Folder; since = $Since; until = $Until; maxResults = $MaxResults; includeBody = [bool]$IncludeBody } },
+        @{ label = 'Keywords + date range'; args = @{ sessionId = $GraphSessionId; keywords = $Keywords; folder = $Folder; since = $Since; until = $Until; maxResults = $MaxResults; includeBody = [bool]$IncludeBody } }
     )
 
     $id = 10
@@ -141,6 +142,7 @@ $arguments = @{
     keywords = $Keywords
     folder = $Folder
     maxResults = $MaxResults
+    includeBody = [bool]$IncludeBody
 }
 if (-not [string]::IsNullOrWhiteSpace($Since)) { $arguments.since = $Since }
 if (-not [string]::IsNullOrWhiteSpace($Until)) { $arguments.until = $Until }

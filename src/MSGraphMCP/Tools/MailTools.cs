@@ -60,16 +60,17 @@ public class MailTools(SessionStore sessionStore, ILogger<MailTools> logger)
             if (hasAttachments)
                 filters.Add("hasAttachments eq true");
 
-            var selectFields = new[]
+            var baseSelectFields = new[]
             {
                 "id", "subject", "from", "toRecipients", "receivedDateTime",
                 "bodyPreview", "hasAttachments", "conversationId", "isRead"
             };
-            if (includeBody)
-                selectFields = [.. selectFields, "body"];
 
             var requestedTop = Math.Clamp(maxResults, 1, 100);
             var isKeywordSearch = normalizedKeywords is not null;
+            var selectFields = includeBody && !isKeywordSearch
+                ? [.. baseSelectFields, "body"]
+                : baseSelectFields;
 
             MessageCollectionResponse? messages;
             if (resolvedFolder is null)
@@ -131,6 +132,11 @@ public class MailTools(SessionStore sessionStore, ILogger<MailTools> logger)
             }
 
             var items = filtered.ToList();
+            if (includeBody && isKeywordSearch && items.Count > 0)
+            {
+                await PopulateBodiesAsync(graph, items);
+            }
+
             if (items.Count == 0)
                 return new { count = 0, message = "No emails matched your search.", emails = Array.Empty<object>() };
 
@@ -155,13 +161,15 @@ public class MailTools(SessionStore sessionStore, ILogger<MailTools> logger)
         catch (Exception ex)
         {
             logger.LogError(ex,
-                "MailSearch failed. sessionId={SessionId}, keywordsPresent={KeywordsPresent}, since={Since}, until={Until}, fromAddress={FromAddress}, toAddress={ToAddress}",
+                "MailSearch failed. sessionId={SessionId}, keywordsPresent={KeywordsPresent}, since={Since}, until={Until}, fromAddress={FromAddress}, toAddress={ToAddress}, maxResults={MaxResults}, includeBody={IncludeBody}",
                 sessionId,
                 !string.IsNullOrWhiteSpace(keywords),
                 since,
                 until,
                 fromAddress,
-                toAddress);
+                toAddress,
+                maxResults,
+                includeBody);
 
             return new
             {
@@ -560,6 +568,31 @@ public class MailTools(SessionStore sessionStore, ILogger<MailTools> logger)
         });
 
         return parsed ?? new MailSearchResult();
+    }
+
+    private static async Task PopulateBodiesAsync(GraphServiceClient graph, IList<Message> messages)
+    {
+        using var throttler = new SemaphoreSlim(6);
+        var tasks = messages
+            .Where(static message => !string.IsNullOrWhiteSpace(message.Id))
+            .Select(async message =>
+            {
+                await throttler.WaitAsync();
+                try
+                {
+                    var detail = await graph.Me.Messages[message.Id!].GetAsync(cfg =>
+                        cfg.QueryParameters.Select = ["id", "body"]);
+
+                    if (detail?.Body is not null)
+                        message.Body = detail.Body;
+                }
+                finally
+                {
+                    throttler.Release();
+                }
+            });
+
+        await Task.WhenAll(tasks);
     }
 
     private static string CleanTextForSummary(string? value)
