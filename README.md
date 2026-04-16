@@ -490,10 +490,14 @@ curl -sS -X POST "$BASE" \
 
 Expected outcome:
 - MCP returns `result.content[0].text` with a JSON payload containing:
-  - `summarizationRequest: true`
+  - `status: "ok"`
+  - `summarizationRequest: false`
   - `context`
-  - `instructions`
-  - `data` (the structured `MailSearch` output used for summarization)
+  - `summary` (high-level server-generated summary)
+  - `counts`, `topSenders`, and `threads`
+  - `emails[]` entries with `shortSummary` and `actionItems`
+
+This means callers can use `MailSummarize` as a single-call summary endpoint and usually do not need to fan out with `MailGetById` for each message.
 
 Troubleshooting:
 - If you get `{"error":{"code":-32001,"message":"Session not found"}}`, your Graph session ID is expired.

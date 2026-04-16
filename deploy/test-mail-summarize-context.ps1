@@ -217,7 +217,10 @@ if (-not $mailParsed.ok) {
 
 $payload = $mailParsed.payload
 $emailCount = $null
-if ($payload.data -and $payload.data.count -ne $null) {
+if ($payload.counts -and $payload.counts.emails -ne $null) {
+    $emailCount = [int]$payload.counts.emails
+}
+elseif ($payload.data -and $payload.data.count -ne $null) {
     $emailCount = [int]$payload.data.count
 }
 

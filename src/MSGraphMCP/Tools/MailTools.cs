@@ -1,6 +1,9 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.Net;
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
 using ModelContextProtocol.Server;
@@ -171,9 +174,9 @@ public class MailTools(SessionStore sessionStore, ILogger<MailTools> logger)
 
     [McpServerTool]
     [Description(
-        "Search emails and return a structured summary grouped by context or theme. " +
+        "Search emails and return a server-generated summary grouped by thread and key points. " +
         "Ideal for 'what happened with project X last month?' queries. " +
-        "Returns a data payload designed to be summarized by an LLM in the next step.")]
+        "Returns summarized JSON directly, without requiring per-email follow-up calls.")]
     public async Task<object> MailSummarize(
         [Description("Active sessionId.")] string sessionId,
         [Description("The context or question to focus the summary on, e.g. 'project Alpha budget discussions'.")] string context,
@@ -187,16 +190,131 @@ public class MailTools(SessionStore sessionStore, ILogger<MailTools> logger)
     {
         var searchKeywords = keywords ?? context;
         var raw = await MailSearch(sessionId, searchKeywords, folder, fromAddress, null, since, until,
-                                   false, maxEmails, false);
+                                   false, maxEmails, true);
 
-        // Return structured payload for LLM to summarize
+        var search = ConvertToMailSearchResult(raw);
+        if (!string.IsNullOrWhiteSpace(search.Status) &&
+            search.Status.Equals("search_failed", StringComparison.OrdinalIgnoreCase))
+        {
+            return new
+            {
+                status = "summarize_failed",
+                context,
+                message = search.Message ?? "MailSummarize could not complete because MailSearch failed.",
+                error = search.Error
+            };
+        }
+
+        if (search.Count == 0 || search.Emails.Count == 0)
+        {
+            return new
+            {
+                status = "ok",
+                summarizationRequest = false,
+                context,
+                query = new
+                {
+                    keywords = searchKeywords,
+                    folder,
+                    fromAddress,
+                    since,
+                    until,
+                    maxEmails
+                },
+                summary = "No emails matched the requested criteria.",
+                counts = new
+                {
+                    emails = 0,
+                    threads = 0,
+                    unread = 0,
+                    withAttachments = 0
+                },
+                topSenders = Array.Empty<object>(),
+                threads = Array.Empty<object>(),
+                emails = Array.Empty<object>()
+            };
+        }
+
+        var orderedEmails = search.Emails
+            .Where(static e => !string.IsNullOrWhiteSpace(e.Id))
+            .OrderBy(static e => e.Index)
+            .ToList();
+
+        var emailSummaries = orderedEmails.Select(e =>
+        {
+            var content = CleanTextForSummary(string.IsNullOrWhiteSpace(e.Body) ? e.Preview : e.Body);
+            var shortSummary = BuildEmailSummary(e.Subject, content);
+            var actionItems = ExtractActionItems(content).Take(3).ToArray();
+
+            return new
+            {
+                index = e.Index,
+                id = e.Id,
+                conversationId = e.ConversationId,
+                from = e.From,
+                subject = e.Subject,
+                date = e.Date,
+                isRead = e.IsRead,
+                hasAttachments = e.HasAttachments,
+                shortSummary,
+                actionItems,
+                preview = BuildSnippet(content, 280)
+            };
+        }).ToList();
+
+        var threadSummaries = orderedEmails
+            .GroupBy(e => string.IsNullOrWhiteSpace(e.ConversationId) ? "(no-conversation-id)" : e.ConversationId!)
+            .Select(g => new
+            {
+                conversationId = g.Key,
+                messageCount = g.Count(),
+                latestSubject = g.OrderBy(e => e.Index).First().Subject,
+                participants = g.Select(e => e.From)
+                    .Where(static f => !string.IsNullOrWhiteSpace(f))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(8)
+                    .ToArray()
+            })
+            .OrderByDescending(t => t.messageCount)
+            .ToList();
+
+        var topSenders = orderedEmails
+            .GroupBy(e => string.IsNullOrWhiteSpace(e.From) ? "(unknown)" : e.From!)
+            .Select(g => new { sender = g.Key, count = g.Count() })
+            .OrderByDescending(s => s.count)
+            .Take(5)
+            .ToList();
+
+        var unreadCount = orderedEmails.Count(e => e.IsRead == false);
+        var attachmentCount = orderedEmails.Count(e => e.HasAttachments == true);
+
+        var highLevelSummary = BuildHighLevelSummary(context, orderedEmails.Count, threadSummaries.Count, unreadCount, attachmentCount, topSenders);
+
         return new
         {
-            summarizationRequest = true,
+            status = "ok",
+            summarizationRequest = false,
             context,
-            instructions = $"Summarize the following emails in the context of: \"{context}\". " +
-                           "Group related threads. Highlight key decisions, action items, and people involved.",
-            data = raw
+            query = new
+            {
+                keywords = searchKeywords,
+                folder,
+                fromAddress,
+                since,
+                until,
+                maxEmails
+            },
+            summary = highLevelSummary,
+            counts = new
+            {
+                emails = orderedEmails.Count,
+                threads = threadSummaries.Count,
+                unread = unreadCount,
+                withAttachments = attachmentCount
+            },
+            topSenders,
+            threads = threadSummaries,
+            emails = emailSummaries
         };
     }
 
@@ -431,5 +549,112 @@ public class MailTools(SessionStore sessionStore, ILogger<MailTools> logger)
             "junkemail" => "junkemail",
             _ => trimmed
         };
+    }
+
+    private static MailSearchResult ConvertToMailSearchResult(object raw)
+    {
+        var json = JsonSerializer.Serialize(raw);
+        var parsed = JsonSerializer.Deserialize<MailSearchResult>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        return parsed ?? new MailSearchResult();
+    }
+
+    private static string CleanTextForSummary(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var text = Regex.Replace(value, "<[^>]+>", " ", RegexOptions.Compiled);
+        text = WebUtility.HtmlDecode(text);
+        text = text.Replace("\r", " ", StringComparison.Ordinal)
+                   .Replace("\n", " ", StringComparison.Ordinal)
+                   .Replace("\t", " ", StringComparison.Ordinal);
+        text = Regex.Replace(text, "\\s+", " ", RegexOptions.Compiled).Trim();
+        return text;
+    }
+
+    private static string BuildSnippet(string text, int maxChars)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        return text.Length <= maxChars
+            ? text
+            : text[..maxChars].TrimEnd() + "...";
+    }
+
+    private static string BuildEmailSummary(string? subject, string content)
+    {
+        var subjectPart = string.IsNullOrWhiteSpace(subject) ? "(no subject)" : subject.Trim();
+        var snippet = BuildSnippet(content, 180);
+        return string.IsNullOrWhiteSpace(snippet)
+            ? subjectPart
+            : $"{subjectPart}: {snippet}";
+    }
+
+    private static IEnumerable<string> ExtractActionItems(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return [];
+
+        var sentences = Regex.Split(content, "(?<=[.!?])\\s+", RegexOptions.Compiled)
+            .Select(s => s.Trim())
+            .Where(s => s.Length >= 15)
+            .Take(40);
+
+        var markers = new[]
+        {
+            "action", "todo", "follow up", "follow-up", "next step",
+            "please", "need to", "required", "deadline", "by "
+        };
+
+        return sentences
+            .Where(s => markers.Any(m => s.Contains(m, StringComparison.OrdinalIgnoreCase)))
+            .Select(s => BuildSnippet(s, 160))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string BuildHighLevelSummary(
+        string context,
+        int emailCount,
+        int threadCount,
+        int unreadCount,
+        int attachmentCount,
+        IEnumerable<object> topSenders)
+    {
+        var senderText = string.Join(", ", topSenders.Select(s => s?.ToString()).Where(static s => !string.IsNullOrWhiteSpace(s)).Take(3));
+        var baseSummary =
+            $"Found {emailCount} email(s) across {threadCount} thread(s) for context '{context}'. " +
+            $"Unread: {unreadCount}. With attachments: {attachmentCount}.";
+
+        return string.IsNullOrWhiteSpace(senderText)
+            ? baseSummary
+            : baseSummary + " Top senders are included in the response.";
+    }
+
+    private sealed class MailSearchResult
+    {
+        public string? Status { get; set; }
+        public string? Message { get; set; }
+        public string? Error { get; set; }
+        public int Count { get; set; }
+        public List<MailSearchEmail> Emails { get; set; } = [];
+    }
+
+    private sealed class MailSearchEmail
+    {
+        public int Index { get; set; }
+        public string? Id { get; set; }
+        public string? ConversationId { get; set; }
+        public string? From { get; set; }
+        public string? Subject { get; set; }
+        public string? Date { get; set; }
+        public bool? IsRead { get; set; }
+        public bool? HasAttachments { get; set; }
+        public string? Preview { get; set; }
+        public string? Body { get; set; }
     }
 }
