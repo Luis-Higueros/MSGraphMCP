@@ -50,9 +50,38 @@ Write-Host ""
 Write-Host "Build complete. New image: $AcrName.azurecr.io/${ImageName}:${ImageTag}" -ForegroundColor Green
 
 Write-Host ""
-Write-Host "Restarting ACI container group: $AciName..." -ForegroundColor Yellow
-az container stop  --resource-group $ResourceGroup --name $AciName --output none
-az container start --resource-group $ResourceGroup --name $AciName --output none
+Write-Host "Restarting ACI container group safely: $AciName..." -ForegroundColor Yellow
+
+# Use restart to avoid a prolonged down state caused by stop/start transition races.
+az container restart --resource-group $ResourceGroup --name $AciName --output none
+
+# Ensure the container group reaches Running. If still not running, issue start retries.
+$state = ""
+for ($r = 1; $r -le 10; $r++) {
+    Start-Sleep -Seconds 6
+    $state = (az container show --resource-group $ResourceGroup --name $AciName --query "containers[0].instanceView.currentState.state" -o tsv).Trim()
+    if ($state -eq "Running") {
+        break
+    }
+    Write-Host "   State check $r/10: $state" -ForegroundColor DarkGray
+}
+
+if ($state -ne "Running") {
+    Write-Host "Container is not running after restart, attempting explicit start with retries..." -ForegroundColor Yellow
+    for ($s = 1; $s -le 6; $s++) {
+        az container start --resource-group $ResourceGroup --name $AciName --output none
+        Start-Sleep -Seconds 8
+        $state = (az container show --resource-group $ResourceGroup --name $AciName --query "containers[0].instanceView.currentState.state" -o tsv).Trim()
+        if ($state -eq "Running") {
+            break
+        }
+        Write-Host "   Start retry $s/6: $state" -ForegroundColor DarkGray
+    }
+}
+
+if ($state -ne "Running") {
+    throw "ACI container group failed to reach Running state. Current state: $state"
+}
 
 Write-Host ""
 Write-Host "Waiting for container to become healthy..." -ForegroundColor Yellow
