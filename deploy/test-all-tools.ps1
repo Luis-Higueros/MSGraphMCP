@@ -598,7 +598,7 @@ if ($IncludeMutations) {
     if ($MailSendTo) {
         [void](Test-Tool -ToolName 'MailSend' -Arguments @{
             sessionId = $GraphSessionId
-            to = $MailSendTo
+            recipient = $MailSendTo
             subject = "MCP test email $stamp"
             body = 'Automated email from test-all-tools.ps1'
             isHtml = $false

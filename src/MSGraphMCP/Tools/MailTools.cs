@@ -393,7 +393,7 @@ public class MailTools(SessionStore sessionStore, ILogger<MailTools> logger)
     [Description("Sends an email on behalf of the authenticated user.")]
     public async Task<object> MailSend(
         [Description("Active sessionId.")] string sessionId,
-        [Description("Recipient email address.")] string to,
+        [Description("Recipient email address.")] string recipient,
         [Description("Email subject.")] string subject,
         [Description("Email body. Supports plain text or basic HTML.")] string body,
         [Description("Optional CC recipients, comma-separated.")] string? cc = null,
@@ -412,13 +412,13 @@ public class MailTools(SessionStore sessionStore, ILogger<MailTools> logger)
             {
                 Subject = subject,
                 Body = new() { ContentType = isHtml ? BodyType.Html : BodyType.Text, Content = body },
-                ToRecipients = [new() { EmailAddress = new() { Address = to } }],
+                ToRecipients = [new() { EmailAddress = new() { Address = recipient } }],
                 CcRecipients = ccRecipients
             },
             SaveToSentItems = true
         });
 
-        return new { status = "sent", to, subject };
+        return new { status = "sent", to = recipient, subject };
     }
 
     [McpServerTool]
