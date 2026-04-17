@@ -404,9 +404,11 @@ public class MailTools(SessionStore sessionStore, ILogger<MailTools> logger)
         {
             var ctx = GetSession(sessionId);
 
-            var ccRecipients = cc?.Split(',')
-                .Select(e => new Recipient { EmailAddress = new() { Address = e.Trim() } })
-                .ToList();
+            var ccRecipients = string.IsNullOrWhiteSpace(cc)
+                ? []  // Empty list instead of null
+                : cc.Split(',')
+                    .Select(e => new Recipient { EmailAddress = new() { Address = e.Trim() } })
+                    .ToList();
 
             await ctx.GraphClient!.Me.SendMail.PostAsync(new()
             {
