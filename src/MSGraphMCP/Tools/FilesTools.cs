@@ -56,7 +56,10 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
     }
 
     [McpServerTool]
-    [Description("Downloads the text content of a file from OneDrive. Best for text, markdown, CSV, and similar files.")]
+    [Description(
+        "Downloads the text content of a file from OneDrive. " +
+        "IMPORTANT: Only use for TEXT files (txt, md, csv, json, xml, code files, etc.). " +
+        "DO NOT use for binary files (docx, pdf, xlsx, pptx, images) - use FilesCopy instead for those file types.")]
     public async Task<object> FilesGetContent(
         [Description("Active sessionId.")] string sessionId,
         [Description("File path relative to root, e.g. 'Documents/report.txt'.")]
@@ -208,6 +211,105 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
                 error = "create_link_failed",
                 message = ex.Message,
                 filePath
+            };
+        }
+    }
+
+    [McpServerTool]
+    [Description(
+        "Creates a server-side copy of a file in OneDrive. Works with all file types including binary files " +
+        "(Word, Excel, PowerPoint, PDF, images, etc.). The copy operation is performed entirely on the server, " +
+        "preserving file type and content exactly.")]
+    public async Task<object> FilesCopy(
+        [Description("Active sessionId.")] string sessionId,
+        [Description("Source file path to copy, e.g., 'Documents/report.docx'.")] string sourceFilePath,
+        [Description("New name for the copied file. If omitted, uses 'Copy of [original name]'.")] 
+        string? newFileName = null,
+        [Description("Destination folder path. If omitted, copies to same folder as source.")] 
+        string? destinationFolderPath = null)
+    {
+        try
+        {
+            var ctx = GetSession(sessionId);
+            var root = await GetUserDriveRootItemAsync(ctx.GraphClient!);
+            
+            // Get source file item
+            var sourceItem = await root.ItemWithPath(sourceFilePath).GetAsync();
+            if (sourceItem is null)
+            {
+                return new
+                {
+                    status = "error",
+                    error = "file_not_found",
+                    message = $"Source file not found: {sourceFilePath}",
+                    sourceFilePath
+                };
+            }
+
+            // Determine destination parent reference
+            var parentReference = new Microsoft.Graph.Models.ItemReference();
+            
+            if (!string.IsNullOrWhiteSpace(destinationFolderPath))
+            {
+                // Copy to different folder
+                var destFolder = await root.ItemWithPath(destinationFolderPath).GetAsync();
+                if (destFolder is null)
+                {
+                    return new
+                    {
+                        status = "error",
+                        error = "folder_not_found",
+                        message = $"Destination folder not found: {destinationFolderPath}",
+                        destinationFolderPath
+                    };
+                }
+                parentReference.Id = destFolder.Id;
+            }
+            else
+            {
+                // Copy to same folder as source
+                parentReference.Id = sourceItem.ParentReference?.Id;
+            }
+
+            // Use provided name or default "Copy of" pattern
+            var copyName = string.IsNullOrWhiteSpace(newFileName)
+                ? $"Copy of {sourceItem.Name}"
+                : newFileName;
+
+            // Perform server-side copy
+            var copyRequest = new Microsoft.Graph.Drives.Item.Items.Item.Copy.CopyPostRequestBody
+            {
+                Name = copyName,
+                ParentReference = parentReference
+            };
+
+            await ctx.GraphClient!.Drives[sourceItem.ParentReference?.DriveId]
+                .Items[sourceItem.Id]
+                .Copy.PostAsync(copyRequest);
+
+            // Note: Copy operation is async on Graph API side, so we return success immediately
+            // The file will appear shortly (usually within seconds)
+            return new
+            {
+                status = "copy_initiated",
+                sourceFilePath,
+                newFileName = copyName,
+                destinationFolderPath = destinationFolderPath ?? "(same folder as source)",
+                message = $"Copy initiated. File '{copyName}' will appear shortly in {(destinationFolderPath ?? "the same folder")}."
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "FilesCopy failed. sourceFilePath={SourceFilePath}, newFileName={NewFileName}, destinationFolderPath={DestinationFolderPath}",
+                sourceFilePath, newFileName, destinationFolderPath);
+            return new
+            {
+                status = "error",
+                error = "copy_failed",
+                message = ex.Message,
+                sourceFilePath,
+                newFileName,
+                destinationFolderPath
             };
         }
     }
