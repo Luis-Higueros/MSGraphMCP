@@ -111,7 +111,9 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
     [McpServerTool]
     [Description(
         "Searches for files across the user's OneDrive and SharePoint by name or content keywords. " +
-        "Returns file metadata including 'webUrl' - a ready-to-use link that can be directly shared or embedded in emails. " +
+        "Returns file metadata including: " +
+        "'filePath' (use this for FilesCopy or FilesGetContent operations), " +
+        "'webUrl' (a ready-to-use shareable link). " +
         "No need to call FilesCreateShareLink for search results - the webUrl is already accessible.")]
     public async Task<object> FilesSearch(
         [Description("Active sessionId.")] string sessionId,
@@ -146,12 +148,37 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
             {
                 id = i.Id,
                 name = i.Name,
+                filePath = GetFilePathFromParentReference(i.ParentReference?.Path, i.Name),
                 sizeKb = i.Size.HasValue ? (long?)(i.Size.Value / 1024) : null,
                 modified = i.LastModifiedDateTime?.ToString("f"),
-                path = i.ParentReference?.Path,
+                parentPath = i.ParentReference?.Path,
                 webUrl = i.WebUrl
             })
         };
+    }
+
+    private static string? GetFilePathFromParentReference(string? parentPath, string? fileName)
+    {
+        if (string.IsNullOrEmpty(fileName))
+            return null;
+
+        if (string.IsNullOrEmpty(parentPath))
+            return fileName;
+
+        // parentPath format: "/drive/root:/Documents/Subfolder" or "/drive/root:"
+        // We want: "Documents/Subfolder/file.docx" or "file.docx"
+        
+        var rootPrefix = "/drive/root:";
+        if (parentPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var relativePath = parentPath.Substring(rootPrefix.Length).TrimStart('/');
+            return string.IsNullOrEmpty(relativePath) 
+                ? fileName 
+                : $"{relativePath}/{fileName}";
+        }
+
+        // Fallback: just return the filename
+        return fileName;
     }
 
     [McpServerTool]
@@ -219,10 +246,11 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
     [Description(
         "Creates a server-side copy of a file in OneDrive. Works with all file types including binary files " +
         "(Word, Excel, PowerPoint, PDF, images, etc.). The copy operation is performed entirely on the server, " +
-        "preserving file type and content exactly.")]
+        "preserving file type and content exactly. " +
+        "Use FilesSearch to find files - the 'filePath' field from search results can be used directly as sourceFilePath.")]
     public async Task<object> FilesCopy(
         [Description("Active sessionId.")] string sessionId,
-        [Description("Source file path to copy, e.g., 'Documents/report.docx'.")] string sourceFilePath,
+        [Description("Source file path to copy, e.g., 'Documents/report.docx'. Get this from FilesSearch 'filePath' field.")] string sourceFilePath,
         [Description("New name for the copied file. If omitted, uses 'Copy of [original name]'.")] 
         string? newFileName = null,
         [Description("Destination folder path. If omitted, copies to same folder as source.")] 
@@ -239,7 +267,7 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
                     status = "error",
                     error = "invalid_file_path",
                     message = "sourceFilePath must be a file path (e.g., 'Documents/report.docx'), not a web URL. " +
-                             "Use FilesSearch to find the file and use the 'name' field as the sourceFilePath.",
+                             "Use FilesSearch to find the file and use the 'filePath' field (NOT 'webUrl') as the sourceFilePath.",
                     sourceFilePath
                 };
             }
