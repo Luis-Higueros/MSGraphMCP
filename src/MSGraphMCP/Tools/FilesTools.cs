@@ -230,6 +230,20 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
     {
         try
         {
+            // Validate sourceFilePath is not a web URL
+            if (sourceFilePath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                sourceFilePath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return new
+                {
+                    status = "error",
+                    error = "invalid_file_path",
+                    message = "sourceFilePath must be a file path (e.g., 'Documents/report.docx'), not a web URL. " +
+                             "Use FilesSearch to find the file and use the 'name' field as the sourceFilePath.",
+                    sourceFilePath
+                };
+            }
+
             var ctx = GetSession(sessionId);
             var root = await GetUserDriveRootItemAsync(ctx.GraphClient!);
             
