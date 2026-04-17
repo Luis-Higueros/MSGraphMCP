@@ -106,7 +106,10 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
     }
 
     [McpServerTool]
-    [Description("Searches for files across the user's OneDrive and SharePoint by name or content keywords.")]
+    [Description(
+        "Searches for files across the user's OneDrive and SharePoint by name or content keywords. " +
+        "Returns file metadata including 'webUrl' - a ready-to-use link that can be directly shared or embedded in emails. " +
+        "No need to call FilesCreateShareLink for search results - the webUrl is already accessible.")]
     public async Task<object> FilesSearch(
         [Description("Active sessionId.")] string sessionId,
         [Description("Search query - matches file names and content.")] string query,
@@ -149,32 +152,64 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
     }
 
     [McpServerTool]
-    [Description("Gets a shareable link for a file in OneDrive.")]
+    [Description(
+        "Creates a NEW shareable link for a file in OneDrive with specific permissions (view/edit, anonymous/organization). " +
+        "IMPORTANT: Use this ONLY to create custom share links. DO NOT use for files from FilesSearch - those already have 'webUrl' ready to use. " +
+        "This requires a OneDrive file path (e.g., 'Documents/report.pdf'), NOT a full web URL.")]
     public async Task<object> FilesCreateShareLink(
         [Description("Active sessionId.")] string sessionId,
-        [Description("File path in OneDrive, e.g. 'Documents/report.pdf'.")]
+        [Description("OneDrive file path like 'Documents/report.pdf'. NOT a web URL - use the file's path only.")] 
         string filePath,
         [Description("Link type: 'view' (read-only) or 'edit' (read-write). Default: 'view'.")]
         string linkType = "view",
         [Description("Scope: 'anonymous' (anyone with link) or 'organization'. Default: 'organization'.")]
         string scope = "organization")
     {
-        var ctx = GetSession(sessionId);
-        var root = await GetUserDriveRootItemAsync(ctx.GraphClient!);
-        var link = await root.ItemWithPath(filePath)
-            .CreateLink.PostAsync(new()
-            {
-                Type = linkType,
-                Scope = scope
-            });
-
-        return new
+        // Validate that filePath is not a web URL
+        if (filePath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            filePath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
-            filePath,
-            shareUrl = link?.Link?.WebUrl,
-            linkType,
-            scope
-        };
+            return new
+            {
+                status = "error",
+                error = "invalid_parameter",
+                message = "FilesCreateShareLink expects a OneDrive file path (e.g., 'Documents/report.pdf'), not a web URL. " +
+                         "If you got this URL from FilesSearch, it's already a usable link - no need to call FilesCreateShareLink.",
+                filePath
+            };
+        }
+
+        try
+        {
+            var ctx = GetSession(sessionId);
+            var root = await GetUserDriveRootItemAsync(ctx.GraphClient!);
+            var link = await root.ItemWithPath(filePath)
+                .CreateLink.PostAsync(new()
+                {
+                    Type = linkType,
+                    Scope = scope
+                });
+
+            return new
+            {
+                status = "created",
+                filePath,
+                shareUrl = link?.Link?.WebUrl,
+                linkType,
+                scope
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "FilesCreateShareLink failed for path '{FilePath}'", filePath);
+            return new
+            {
+                status = "error",
+                error = "create_link_failed",
+                message = ex.Message,
+                filePath
+            };
+        }
     }
 
     private SessionContext GetSession(string sessionId)
