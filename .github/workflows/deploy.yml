@@ -7,9 +7,9 @@ on:
     branches: [ main ]
 
 env:
-  ACR_NAME: msgraphmcpacr
-  ACI_NAME: msgraph-mcp
-  RESOURCE_GROUP: rg-msgraph-mcp
+  ACR_NAME: msgraphmcp95932
+  ACI_NAME: msgraph-mcp-27992
+  RESOURCE_GROUP: euw-ea_teamsai-sandbox-rg
   IMAGE_NAME: msgraphmcp
 
 jobs:
@@ -124,11 +124,7 @@ jobs:
 
       - name: Verify deployment health
         run: |
-          echo "Waiting 30s for container to start..."
-          sleep 30
-          FQDN=$(az container show \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name ${{ env.ACI_NAME }} \
-            --query ipAddress.fqdn -o tsv)
-          curl -f "http://${FQDN}:8080/health" || exit 1
-          echo "✅ Health check passed: http://${FQDN}:8080"
+          echo "Waiting 45s for container to start and Front Door to update..."
+          sleep 45
+          curl -f "https://ep-msgraphmcp-43613-c6dvbtfyfccmhzf8.a03.azurefd.net/health" || exit 1
+          echo "✅ Health check passed via Front Door"
