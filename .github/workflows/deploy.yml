@@ -104,11 +104,13 @@ jobs:
         run: docker build -t ${{ env.IMAGE_NAME }}:ci .
 
   # ── Deploy (main branch only) ─────────────────────────────────────────────
+  # NOTE: Deployment is currently disabled. Use .\deploy\update-aci.ps1 for manual deployment.
+  # To enable, configure AZURE_CREDENTIALS secret in GitHub repository settings.
   deploy:
     name: Deploy to ACI
     runs-on: ubuntu-latest
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: false  # Disabled - deploy manually with .\deploy\update-aci.ps1
 
     steps:
       - name: Checkout
