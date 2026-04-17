@@ -38,39 +38,59 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "Installing Azurite..."
           npm install -g azurite
-          azurite --silent --location .azurite --blobHost 127.0.0.1 --queueHost 127.0.0.1 --tableHost 127.0.0.1 &
 
+          echo "Starting Azurite..."
+          azurite --silent --location .azurite --blobHost 127.0.0.1 --queueHost 127.0.0.1 --tableHost 127.0.0.1 &
+          sleep 3
+
+          echo "Setting environment variables..."
           export AzureAd__TenantId="ci-tenant-id"
           export AzureAd__ClientId="ci-client-id"
           export TokenCache__StorageConnectionString="UseDevelopmentStorage=true"
 
-          dotnet run --project src/MSGraphMCP --no-build -c Release > /tmp/msgraphmcp.log 2>&1 &
+          echo "Starting MSGraphMCP server..."
+          dotnet run --project src/MSGraphMCP -c Release --no-restore > /tmp/msgraphmcp.log 2>&1 &
+          APP_PID=$!
 
+          echo "Waiting for server to start..."
           for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:8080/health > /dev/null; then
+            if curl -fsS http://127.0.0.1:8080/health > /dev/null 2>&1; then
+              echo "Server is healthy after ${i} attempts"
               break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "ERROR: Server failed to start after 60 seconds"
+              echo "=== Server logs ==="
+              cat /tmp/msgraphmcp.log
+              kill $APP_PID 2>/dev/null || true
+              exit 1
             fi
             sleep 2
           done
 
-          if ! curl -fsS http://127.0.0.1:8080/health > /dev/null; then
-            echo "Server failed to start"
-            cat /tmp/msgraphmcp.log
-            exit 1
-          fi
-
+          echo "Testing /test/scope-smoke endpoint..."
           status=$(curl -sS -o /tmp/scope-smoke-response.json -w "%{http_code}" \
             -H "Content-Type: application/json" \
             -X POST http://127.0.0.1:8080/test/scope-smoke \
             -d '{}')
 
+          echo "Received status: $status"
+          
           if [ "$status" != "400" ]; then
-            echo "Expected HTTP 400 from /test/scope-smoke for missing sessionId, got: $status"
+            echo "ERROR: Expected HTTP 400 from /test/scope-smoke for missing sessionId, got: $status"
+            echo "=== Response ==="
             cat /tmp/scope-smoke-response.json
+            echo ""
+            echo "=== Server logs ==="
             cat /tmp/msgraphmcp.log
+            kill $APP_PID 2>/dev/null || true
             exit 1
           fi
+
+          echo "✅ Scope smoke test passed"
+          kill $APP_PID 2>/dev/null || true
 
       - name: Run tests
         run: |
