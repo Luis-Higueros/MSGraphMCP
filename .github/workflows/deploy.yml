@@ -45,7 +45,7 @@ jobs:
           export AzureAd__ClientId="ci-client-id"
           export TokenCache__StorageConnectionString="UseDevelopmentStorage=true"
 
-          dotnet run --project src/MSGraphMCP --no-build > /tmp/msgraphmcp.log 2>&1 &
+          dotnet run --project src/MSGraphMCP --no-build -c Release > /tmp/msgraphmcp.log 2>&1 &
 
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:8080/health > /dev/null; then
