@@ -659,6 +659,132 @@ MSGraphMCP/
 
 ---
 
+## Test Cases from Relevance
+
+Use these test prompts in Relevance AI to exercise all MCP tools and discover edge cases. Track results as ✅ Pass, ⚠️ Warning (works but with issues), or ❌ Fail.
+
+### 🔐 Identity & Auth (Start Here)
+
+1. "Who am I?" → Tests: `GraphWhoAmI`, identity retrieval
+2. "What's my email address?" → Tests: Identity caching
+
+### 📧 Email (Read Operations)
+
+3. "Search for emails about budget" → Tests: `MailSearch` with keywords
+4. "Find emails from john.smith@company.com" → Tests: `MailSearch` with fromAddress
+5. "Show me emails received in the last week" → Tests: `MailSearch` with date range
+6. "Find emails with attachments about project Alpha" → Tests: `MailSearch` with hasAttachments + keywords
+7. "Summarize my emails about quarterly planning from the last 2 weeks" → Tests: `MailSummarize` with context + date range
+8. "Get the email thread for conversation ID [paste-one-from-search]" → Tests: `MailGetThread`
+9. "Show me the full body of email ID [paste-one-from-search]" → Tests: `MailGetById`
+
+### 📧 Email (Write Operations - Need Confirmation)
+
+10. "Draft a reply to email ID [paste-id] saying 'Thanks, I'll review this today'" → Tests: `MailDraftReply`
+11. "Send an email to test@example.com with subject 'Test' and body 'This is a test'" → Tests: `MailSend` ⚠️ **CAUTION: will actually send!**
+
+### 📅 Calendar
+
+12. "What's on my calendar today?" → Tests: `CalendarGetAgenda` with single day
+13. "Show my agenda for this week" → Tests: `CalendarGetAgenda` with date range
+14. "When do I have free time tomorrow?" → Tests: `CalendarFindFreeSlots`
+15. "Find free time next week for a 2-hour meeting during business hours" → Tests: `CalendarFindFreeSlots` with minDurationMinutes, workDayStart/End
+16. "Suggest meeting times with alice@company.com and bob@company.com for next week" → Tests: `CalendarSuggestMeetingTimes`
+17. "Create a 30-minute meeting tomorrow at 2pm with subject 'Sync' and invite alice@company.com" → Tests: `CalendarCreateEvent` ⚠️ **CAUTION: creates actual meeting!**
+
+### 📁 Files (Critical Test Area)
+
+18. "Find files about AI" → Tests: `FilesSearch`, itemId/filePath fields
+19. "Search for files with 'budget' in the name" → Tests: `FilesSearch` keyword matching
+20. "List files in my OneDrive root" → Tests: `FilesListItems` (no folderPath)
+21. "List files in the Documents folder" → Tests: `FilesListItems` with folderPath
+22. "Show me the content of [filename.txt]" → Tests: `FilesGetContent` ⚠️ **TEXT ONLY** - use .txt, .md, .csv
+23. "Copy [filename.docx] to the same folder with timestamp in the name" → Tests: `FilesCopy` with itemId, newFileName
+24. "Upload a text file to Documents folder named 'test.txt' with content 'Hello World'" → Tests: `FilesUploadText` ⚠️ **CAUTION: creates file!**
+25. "Create a share link for [filename] with view-only access" → Tests: `FilesCreateShareLink` ⚠️ **CAUTION: creates public link!**
+
+### 💬 Teams
+
+26. "List my Teams" → Tests: `TeamsListMyTeams`
+27. "Show channels in team [paste-team-id-from-above]" → Tests: `TeamsListChannels`
+28. "List my Teams chats" → Tests: `TeamsListChats`
+29. "Show recent messages from chat [paste-chat-id]" → Tests: `TeamsGetChatMessages`
+30. "Get messages from channel [channel-id] in team [team-id]" → Tests: `TeamsGetChannelMessages`
+31. "Post 'Test message' to channel [channel-id] in team [team-id]" → Tests: `TeamsSendChannelMessage` ⚠️ **CAUTION: posts actual message!**
+
+### 📝 OneNote
+
+32. "List my OneNote notebooks" → Tests: `OneNoteListNotebooks`
+33. "Show sections in notebook [paste-notebook-id]" → Tests: `OneNoteListSections`
+34. "List pages in section [paste-section-id]" → Tests: `OneNoteListPages`
+35. "Search OneNote for 'project timeline'" → Tests: `OneNoteSearchPages`
+36. "Show content of OneNote page [paste-page-id]" → Tests: `OneNoteGetPageContent`
+37. "Create a OneNote page in section [section-id] titled 'Meeting Notes' with content 'Attendees: Alice, Bob'" → Tests: `OneNoteCreatePage` ⚠️ **CAUTION: creates page!**
+
+### ✅ Planner
+
+38. "List my Planner plans" → Tests: `PlannerListPlans`
+39. "Show tasks in plan [paste-plan-id]" → Tests: `PlannerListTasks`
+40. "Show only incomplete tasks in plan [plan-id]" → Tests: `PlannerListTasks` with includeCompleted=false
+41. "Create a task in plan [plan-id] titled 'Review document' due next Friday" → Tests: `PlannerCreateTask` ⚠️ **CAUTION: creates task!**
+42. "Update task [task-id] to 50% complete" → Tests: `PlannerUpdateTask` ⚠️ **CAUTION: modifies task!**
+
+### 🏢 SharePoint
+
+43. "Find SharePoint sites with 'Engineering' in the name" → Tests: `SharePointListSites`
+44. "List document libraries in site [paste-site-id]" → Tests: `SharePointListDrives`
+45. "List files in SharePoint drive [paste-drive-id]" → Tests: `SharePointListItems`
+46. "Get content of SharePoint file with drive [drive-id] and item [item-id]" → Tests: `SharePointGetContent`
+47. "Upload text to SharePoint drive [drive-id] in folder 'Test' with filename 'hello.txt' and content 'Hello SharePoint'" → Tests: `SharePointUploadText` ⚠️ **CAUTION: creates file!**
+48. "Create share link for SharePoint item [item-id] in drive [drive-id]" → Tests: `SharePointCreateShareLink` ⚠️ **CAUTION: creates link!**
+
+### 🔥 Edge Cases & Stress Tests
+
+49. "Find emails from the last 6 months with more than 100 results" → Tests: Pagination limits, maxResults cap
+50. "Search for files with special characters: 'Report (Final) - Q1.xlsx'" → Tests: `FilesSearch` with special chars
+51. "Copy a file from OneDrive root (filename only, no folder)" → Tests: `FilesCopy` with itemId when filePath is incomplete
+52. "Get content of a large text file (>50KB)" → Tests: `FilesGetContent` truncation
+53. "Try to get content of a binary file (.docx)" → Tests: `FilesGetContent` error handling (should fail gracefully)
+54. "Find free time with weird parameters: workDayStart='02:00', workDayEnd='04:00'" → Tests: `CalendarFindFreeSlots` validation
+55. "Search emails with quoted phrase: 'Executive Summary'" → Tests: `MailSearch` phrase normalization
+56. "Create a meeting with HTML body content" → Tests: `CalendarCreateEvent` with special characters
+57. "Send email with CC to multiple recipients" → Tests: `MailSend` with cc parameter
+
+### 🚨 Expected Failure Tests (Should Fail Gracefully)
+
+58. "Copy file using webUrl as sourceFileId" → Should fail with: "dangerous request path" error
+59. "Copy file using just filename (no itemId, no path)" → Should fail with: "resource not found" error
+60. "Get content of non-existent file" → Should fail with: "file not found" error
+61. "Search for emails with invalid date format: 'yesterday'" → Should fail with: "must be ISO date YYYY-MM-DD" error
+62. "Create calendar event with end time before start time" → Should fail with validation error
+
+### 🎯 Priority Test Order
+
+**Phase 1 (Critical - tests 1-25):**
+- Identity, Email, Calendar, Files
+- Most important for daily use
+
+**Phase 2 (Important - tests 26-42):**
+- Teams, OneNote, Planner
+- Important but less frequently used
+
+**Phase 3 (SharePoint - tests 43-48):**
+- Similar to Files operations
+
+**Phase 4 (Edge Cases - tests 49-62):**
+- Stress tests and failure scenarios
+- Find the bugs!
+
+### 📊 Tracking Template
+
+For each test, note:
+- ✅ **Pass** - Works as expected
+- ⚠️ **Warning** - Works but with issues (slow, confusing output, etc.)
+- ❌ **Fail** - Error or unexpected behavior
+- 📝 **Notes** - Details about the issue
+
+---
+
 ## License
 
 MIT
