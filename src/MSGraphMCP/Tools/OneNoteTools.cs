@@ -10,7 +10,7 @@ namespace MSGraphMCP.Tools;
 public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logger)
 {
     [McpServerTool]
-    [Description("Lists all OneNote notebooks accessible by the user.")]
+    [Description("Lists all OneNote notebooks accessible by the user. Returns direct links to open in browser.")]
     public async Task<object> OneNoteListNotebooks(
         [Description("Active sessionId.")] string sessionId)
     {
@@ -18,7 +18,10 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
         {
             var ctx    = GetSession(sessionId);
             var result = await ctx.GraphClient!.Me.Onenote.Notebooks.GetAsync(cfg =>
-                cfg.QueryParameters.Select = ["id", "displayName", "lastModifiedDateTime", "isShared"]);
+            {
+                cfg.QueryParameters.Select = ["id", "displayName", "lastModifiedDateTime", "isShared", "links"];
+                cfg.QueryParameters.Expand = ["links"];
+            });
 
             return new
             {
@@ -28,7 +31,8 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
                     id       = n.Id,
                     name     = n.DisplayName,
                     modified = n.LastModifiedDateTime?.ToString("f"),
-                    isShared = n.IsShared
+                    isShared = n.IsShared,
+                    webUrl   = n.Links?.OneNoteWebUrl?.Href
                 })
             };
         }
@@ -40,7 +44,7 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
     }
 
     [McpServerTool]
-    [Description("Lists all sections within a OneNote notebook.")]
+    [Description("Lists all sections within a OneNote notebook. Returns direct links to open in browser.")]
     public async Task<object> OneNoteListSections(
         [Description("Active sessionId.")] string sessionId,
         [Description("Notebook ID from OneNoteListNotebooks.")] string notebookId)
@@ -50,7 +54,10 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
             var ctx    = GetSession(sessionId);
             var result = await ctx.GraphClient!.Me.Onenote.Notebooks[notebookId].Sections
                 .GetAsync(cfg =>
-                    cfg.QueryParameters.Select = ["id", "displayName", "lastModifiedDateTime"]);
+                {
+                    cfg.QueryParameters.Select = ["id", "displayName", "lastModifiedDateTime", "links"];
+                    cfg.QueryParameters.Expand = ["links"];
+                });
 
             return new
             {
@@ -60,7 +67,8 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
                 {
                     id       = s.Id,
                     name     = s.DisplayName,
-                    modified = s.LastModifiedDateTime?.ToString("f")
+                    modified = s.LastModifiedDateTime?.ToString("f"),
+                    webUrl   = s.Links?.OneNoteWebUrl?.Href
                 })
             };
         }
@@ -72,7 +80,7 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
     }
 
     [McpServerTool]
-    [Description("Lists pages in a OneNote section, with title and last modified date.")]
+    [Description("Lists pages in a OneNote section, with title and last modified date. Returns direct links to open in browser.")]
     public async Task<object> OneNoteListPages(
         [Description("Active sessionId.")] string sessionId,
         [Description("Section ID from OneNoteListSections.")] string sectionId,
@@ -85,8 +93,9 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
                 .GetAsync(cfg =>
                 {
                     cfg.QueryParameters.Top    = maxPages;
-                    cfg.QueryParameters.Select = ["id", "title", "lastModifiedDateTime", "createdDateTime"];
+                    cfg.QueryParameters.Select = ["id", "title", "lastModifiedDateTime", "createdDateTime", "links"];
                     cfg.QueryParameters.Orderby = ["lastModifiedDateTime desc"];
+                    cfg.QueryParameters.Expand = ["links"];
                 });
 
             return new
@@ -98,7 +107,8 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
                     id       = p.Id,
                     title    = p.Title,
                     created  = p.CreatedDateTime?.ToString("f"),
-                    modified = p.LastModifiedDateTime?.ToString("f")
+                    modified = p.LastModifiedDateTime?.ToString("f"),
+                    webUrl   = p.Links?.OneNoteWebUrl?.Href
                 })
             };
         }
@@ -148,7 +158,7 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
     }
 
     [McpServerTool]
-    [Description("Searches across all OneNote pages for a keyword or phrase.")]
+    [Description("Searches across all OneNote pages for a keyword or phrase. Returns direct links to open in browser.")]
     public async Task<object> OneNoteSearchPages(
         [Description("Active sessionId.")] string sessionId,
         [Description("Search query.")] string query,
@@ -161,7 +171,8 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
             {
                 cfg.QueryParameters.Search = query;
                 cfg.QueryParameters.Top    = maxResults;
-                cfg.QueryParameters.Select = ["id", "title", "lastModifiedDateTime", "parentSection"];
+                cfg.QueryParameters.Select = ["id", "title", "lastModifiedDateTime", "parentSection", "links"];
+                cfg.QueryParameters.Expand = ["links"];
             });
 
             return new
@@ -173,7 +184,8 @@ public class OneNoteTools(SessionStore sessionStore, ILogger<OneNoteTools> logge
                     id       = p.Id,
                     title    = p.Title,
                     modified = p.LastModifiedDateTime?.ToString("f"),
-                    section  = p.ParentSection?.DisplayName
+                    section  = p.ParentSection?.DisplayName,
+                    webUrl   = p.Links?.OneNoteWebUrl?.Href
                 })
             };
         }
