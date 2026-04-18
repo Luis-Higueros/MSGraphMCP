@@ -149,9 +149,11 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
                 id = i.Id,
                 name = i.Name,
                 filePath = GetFilePathFromParentReference(i.ParentReference?.Path, i.Name),
+                itemId = i.Id,  // Reliable fallback for FilesCopy/FilesGetContent when filePath fails
                 sizeKb = i.Size.HasValue ? (long?)(i.Size.Value / 1024) : null,
                 modified = i.LastModifiedDateTime?.ToString("f"),
                 parentPath = i.ParentReference?.Path,
+                driveId = i.ParentReference?.DriveId,
                 webUrl = i.WebUrl
             })
         };
@@ -247,10 +249,10 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
         "Creates a server-side copy of a file in OneDrive. Works with all file types including binary files " +
         "(Word, Excel, PowerPoint, PDF, images, etc.). The copy operation is performed entirely on the server, " +
         "preserving file type and content exactly. " +
-        "Use FilesSearch to find files - the 'filePath' field from search results can be used directly as sourceFilePath.")]
+        "Use FilesSearch to find files - use 'itemId' field (most reliable) or 'filePath' field as sourceFileId/sourceFilePath.")]
     public async Task<object> FilesCopy(
         [Description("Active sessionId.")] string sessionId,
-        [Description("Source file path to copy, e.g., 'Documents/report.docx'. Get this from FilesSearch 'filePath' field.")] string sourceFilePath,
+        [Description("Source file ID (preferred, from FilesSearch 'itemId') OR file path (e.g., 'Documents/report.docx').")] string sourceFileId,
         [Description("New name for the copied file. If omitted, uses 'Copy of [original name]'.")] 
         string? newFileName = null,
         [Description("Destination folder path. If omitted, copies to same folder as source.")] 
@@ -258,33 +260,44 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
     {
         try
         {
-            // Validate sourceFilePath is not a web URL
-            if (sourceFilePath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                sourceFilePath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            // Validate sourceFileId is not a web URL
+            if (sourceFileId.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                sourceFileId.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
                 return new
                 {
                     status = "error",
-                    error = "invalid_file_path",
-                    message = "sourceFilePath must be a file path (e.g., 'Documents/report.docx'), not a web URL. " +
-                             "Use FilesSearch to find the file and use the 'filePath' field (NOT 'webUrl') as the sourceFilePath.",
-                    sourceFilePath
+                    error = "invalid_file_id",
+                    message = "sourceFileId must be a file ID or path, not a web URL. " +
+                             "Use FilesSearch to find the file and use the 'itemId' (preferred) or 'filePath' field (NOT 'webUrl').",
+                    sourceFileId
                 };
             }
 
             var ctx = GetSession(sessionId);
-            var root = await GetUserDriveRootItemAsync(ctx.GraphClient!);
+            var drive = await GetUserDriveAsync(ctx.GraphClient!);
             
-            // Get source file item
-            var sourceItem = await root.ItemWithPath(sourceFilePath).GetAsync();
+            // Try to get source file item by ID first (most reliable), then fall back to path
+            Microsoft.Graph.Models.DriveItem? sourceItem = null;
+            try
+            {
+                // Attempt to treat as ID first
+                sourceItem = await ctx.GraphClient!.Drives[drive.Id!].Items[sourceFileId].GetAsync();
+            }
+            catch
+            {
+                // If ID lookup fails, try as path
+                var root = await GetUserDriveRootItemAsync(ctx.GraphClient!);
+                sourceItem = await root.ItemWithPath(sourceFileId).GetAsync();
+            }
             if (sourceItem is null)
             {
                 return new
                 {
                     status = "error",
                     error = "file_not_found",
-                    message = $"Source file not found: {sourceFilePath}",
-                    sourceFilePath
+                    message = $"Source file not found: {sourceFileId}",
+                    sourceFileId
                 };
             }
 
@@ -294,6 +307,7 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
             if (!string.IsNullOrWhiteSpace(destinationFolderPath))
             {
                 // Copy to different folder
+                var root = await GetUserDriveRootItemAsync(ctx.GraphClient!);
                 var destFolder = await root.ItemWithPath(destinationFolderPath).GetAsync();
                 if (destFolder is null)
                 {
@@ -334,7 +348,8 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
             return new
             {
                 status = "copy_initiated",
-                sourceFilePath,
+                sourceFileId,
+                sourceName = sourceItem.Name,
                 newFileName = copyName,
                 destinationFolderPath = destinationFolderPath ?? "(same folder as source)",
                 message = $"Copy initiated. File '{copyName}' will appear shortly in {(destinationFolderPath ?? "the same folder")}."
@@ -342,14 +357,14 @@ public class FilesTools(SessionStore sessionStore, ILogger<FilesTools> logger)
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "FilesCopy failed. sourceFilePath={SourceFilePath}, newFileName={NewFileName}, destinationFolderPath={DestinationFolderPath}",
-                sourceFilePath, newFileName, destinationFolderPath);
+            logger.LogError(ex, "FilesCopy failed. sourceFileId={SourceFileId}, newFileName={NewFileName}, destinationFolderPath={DestinationFolderPath}",
+                sourceFileId, newFileName, destinationFolderPath);
             return new
             {
                 status = "error",
                 error = "copy_failed",
                 message = ex.Message,
-                sourceFilePath,
+                sourceFileId,
                 newFileName,
                 destinationFolderPath
             };
